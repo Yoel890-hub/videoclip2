@@ -1,0 +1,1 @@
+{ "Rules": [ { "ID": "expire-clips-30d", "Status": "Enabled", "Filter": { "Prefix": "clips/" }, "Expiration": { "Days": 30 } } ] }
