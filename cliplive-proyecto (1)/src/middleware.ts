@@ -14,7 +14,9 @@ export async function middleware(req: NextRequest) {
       },
     },
   });
-  const { data } = await supabase.auth.getUser();
+  // getClaims(): verifica la sesión aquí mismo (firma ES256) en vez de preguntar a Supabase en cada clic.
+  const { data: claims } = await supabase.auth.getClaims();
+  const data = { user: claims?.claims?.sub ? { id: claims.claims.sub } : null };
   const p = req.nextUrl.pathname;
   const open = p.startsWith("/login") || p.startsWith("/auth") || p.startsWith("/api/webhook") || p.startsWith("/bienvenida");
   if (!data.user && !open) {

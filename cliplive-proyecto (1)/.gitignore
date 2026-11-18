@@ -10,3 +10,4 @@ next-env.d.ts
 
 # Modelos de Whisper (pesados)
 models/
+.next-prod/

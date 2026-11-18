@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { admin } from "@/lib/supabase";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { PLANS, type PlanId } from "@/lib/plans";
 
 export async function POST(req: Request) {
   const body = await req.text();
   let ev;
-  try { ev = stripe.webhooks.constructEvent(body, req.headers.get("stripe-signature")!, process.env.STRIPE_WEBHOOK_SECRET!); }
+  try { ev = getStripe().webhooks.constructEvent(body, req.headers.get("stripe-signature")!, process.env.STRIPE_WEBHOOK_SECRET!); }
   catch { return NextResponse.json({ error: "Firma inválida" }, { status: 400 }); }
 
   const db = admin();
