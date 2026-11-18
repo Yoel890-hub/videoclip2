@@ -25,6 +25,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       kind: live ? "live" : "vod", duration: live ? null : Math.floor(info.duration),
       platform: target.platform, url: target.url, title: info.title, thumbnail: info.thumbnail,
+      videoId: target.platform === "youtube" ? info.id : null,   // para el reproductor de recorte
       channel: info.uploader, maxHeight: Math.max(0, ...heights),
       // DVR real: YouTube permite retroceder hasta ~12 h si el canal lo activa; TikTok no guarda historial.
       dvrSeconds: !live ? 0 : target.platform === "tiktok" ? 0 : target.platform === "youtube" ? 12 * 3600 : 2 * 3600,

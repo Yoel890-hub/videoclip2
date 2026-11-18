@@ -1,12 +1,13 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ArrowRightIcon } from "@/components/Icons";
 
 export default function UrlForm() {
   const [url, setUrl] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const router = useRouter();
   return (
-    <form className="space-y-3" onSubmit={async (e) => {
+    <form className="space-y-2" onSubmit={async (e) => {
       e.preventDefault(); setBusy(true); setErr("");
       const r = await fetch("/api/probe", { method: "POST", body: JSON.stringify({ url }) });
       const j = await r.json(); setBusy(false);
@@ -14,9 +15,13 @@ export default function UrlForm() {
       sessionStorage.setItem("probe", JSON.stringify(j));
       router.push("/nuevo");
     }}>
-      <input className="input" placeholder="https://www.youtube.com/watch?v=…" value={url} onChange={(e) => setUrl(e.target.value)} required />
-      <p className="text-sm text-red-400" role="alert">{err}</p>
-      <button className="btn-primary w-full" disabled={busy}>{busy ? "Verificando…" : "Verificar"}</button>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input className="input sm:flex-1" type="url" placeholder="Pega el enlace aquí…" value={url} onChange={(e) => setUrl(e.target.value)} required aria-label="Enlace del directo o vídeo" />
+        <button className="btn-primary sm:px-6" disabled={busy}>
+          {busy ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-bg/40 border-t-bg" aria-hidden />Comprobando…</> : <>Continuar <ArrowRightIcon /></>}
+        </button>
+      </div>
+      {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
     </form>
   );
 }

@@ -1,0 +1,12 @@
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Claves secretas: nunca subirlas
+.env
+.env.local
+.env*.local
+
+# Modelos de Whisper (pesados)
+models/
