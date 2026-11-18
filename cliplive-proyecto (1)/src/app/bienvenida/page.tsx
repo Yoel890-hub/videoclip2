@@ -139,7 +139,7 @@ export default function Bienvenida() {
           <div className="mt-10 space-y-3">
             {[
               ["¿Necesito instalar algo?", "No. Todo funciona en el navegador, también desde el móvil."],
-              ["¿De qué plataformas puedo sacar clips?", "Directos de YouTube, Twitch, Kick y TikTok, y vídeos normales de YouTube."],
+              ["¿De qué plataformas puedo sacar clips?", "Directos de YouTube, Twitch, Kick y TikTok, y vídeos normales de YouTube y TikTok. También sirven los enlaces cortos que da el botón Compartir de TikTok."],
               ["¿Qué pasa si un clip falla?", "Te devolvemos automáticamente los créditos o la prueba gratis."],
               ["¿Cuánto tiempo se guardan mis clips?", "30 días. Puedes descargarlos, renombrarlos o borrarlos cuando quieras."],
               ["¿Puedo usar cualquier vídeo?", "Solo contenido que te pertenezca o que tengas permiso para usar. Respeta los derechos de autor y las normas de cada plataforma."],

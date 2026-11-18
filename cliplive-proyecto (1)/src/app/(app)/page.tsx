@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { admin, requireUser } from "@/lib/supabase";
+import { admin, requireUser, getProfile } from "@/lib/supabase";
 import ClipCard from "@/components/ClipCard";
 import UrlForm from "@/components/UrlForm";
 import AutoRefresh from "@/components/AutoRefresh";
@@ -13,7 +13,7 @@ export default async function Workspace() {
   const user = (await requireUser())!;
   const db = admin();
   const [{ data: prof }, { data: clips }, { count }] = await Promise.all([
-    db.from("profiles").select("*").eq("id", user.id).single(),
+    getProfile(user.id).then((data) => ({ data })),
     db.from("clips").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(3),
     db.from("clips").select("id", { count: "exact", head: true }).eq("user_id", user.id),
   ]);

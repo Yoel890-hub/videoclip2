@@ -1,5 +1,6 @@
 import { AlertIcon, CaptionsIcon, DownloadIcon, HeadphonesIcon, SparklesIcon } from "@/components/Icons";
 import ClipActions from "@/components/ClipActions";
+import ClipMedia from "@/components/ClipMedia";
 
 const FMT: Record<string, string> = { video: "Vídeo", audio: "Audio MP3", image: "Captura" };
 const PLATFORM: Record<string, string> = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok" };
@@ -17,10 +18,8 @@ export default function ClipCard({ c }: { c: any }) {
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-card transition hover:border-zinc-600">
       {/* Vista previa */}
       <div className="bg-black">
-        {ready && c.format === "video" && (
-          <video className={`block w-full ${frame} bg-black object-contain`} src={view} controls playsInline preload="metadata" />
-        )}
-        {ready && c.format === "image" && <img className="block aspect-video w-full object-contain" src={view} alt="Captura del clip" />}
+        {ready && c.format === "video" && <ClipMedia kind="video" src={view} frame={frame} />}
+        {ready && c.format === "image" && <ClipMedia kind="image" src={view} frame="aspect-video" />}
         {ready && c.format === "audio" && (
           <div className="flex aspect-video flex-col items-center justify-center gap-4 bg-gradient-to-br from-accent/20 to-transparent p-4">
             <HeadphonesIcon className="h-10 w-10 text-accent" />

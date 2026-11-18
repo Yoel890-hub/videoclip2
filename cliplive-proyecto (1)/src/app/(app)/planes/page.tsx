@@ -1,4 +1,4 @@
-import { admin, requireUser } from "@/lib/supabase";
+import { requireUser, getProfile } from "@/lib/supabase";
 import { PLANS, PAID_PLANS, REFERRAL_BONUS } from "@/lib/plans";
 import PlanButton from "@/components/PlanButton";
 import PlanCard from "@/components/PlanCard";
@@ -7,7 +7,7 @@ const BADGE: Record<string, string> = { creator: "El más elegido", premium: "Me
 
 export default async function Planes() {
   const user = (await requireUser())!;
-  const { data: prof } = await admin().from("profiles").select("plan,referral_code").eq("id", user.id).single();
+  const prof = await getProfile(user.id);
   return (
     <div className="space-y-8">
       <div>

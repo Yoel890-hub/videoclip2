@@ -2,7 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Link from "next/link";
-import { sessionClient, admin } from "@/lib/supabase";
+import { requireUser, getProfile } from "@/lib/supabase";
 import { PLANS, TRIALS } from "@/lib/plans";
 import NavLinks from "@/components/NavLinks";
 import { isAdmin } from "@/lib/admin";
@@ -14,10 +14,10 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = { title: "ClipLive", description: "Saca clips de directos de YouTube, Twitch, Kick y TikTok" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const { data } = await (await sessionClient()).auth.getUser();
-  const prof = data.user ? (await admin().from("profiles").select("plan,credits,trials_used").eq("id", data.user.id).single()).data : null;
-  const email = displayName(data.user?.email);
-  const adm = isAdmin(data.user?.email);
+  const user = await requireUser();
+  const prof = user ? await getProfile(user.id) : null;
+  const email = displayName(user?.email);
+  const adm = isAdmin(user?.email);
   const trialsLeft = prof ? Math.max(0, TRIALS - prof.trials_used) : 0;
   return (
     <html lang="es">

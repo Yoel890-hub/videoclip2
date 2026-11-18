@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { PLANS, QUALITIES, AUTO_WINDOWS, clipCost, type PlanId } from "@/lib/plans";
+import { PLANS, QUALITIES, AUTO_WINDOWS, RECORD_WINDOWS, clipCost, isTikTokLive, suggestedClips, type PlanId } from "@/lib/plans";
 import Trimmer from "@/components/Trimmer";
 import CaptionPicker from "@/components/CaptionPicker";
 import { CAPTION_STYLES, SUB_SIZES, SUB_POSITIONS, SUB_LANGS } from "@/lib/captionStyles";
@@ -23,7 +23,19 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
   const [format, setFormat] = useState("video"), [aspect, setAspect] = useState("9:16"), [subStyle, setSubStyle] = useState<string | null>(null), [subSize, setSubSize] = useState("m"), [subPos, setSubPos] = useState("auto"), [subLang, setSubLang] = useState("original"), [framing, setFraming] = useState("auto");
   const [start, setStart] = useState(0), [duration, setDuration] = useState(30), [quality, setQuality] = useState(480);
   const [err, setErr] = useState(""), [busy, setBusy] = useState(false), [startAt, setStartAt] = useState("0:00");
-  useEffect(() => { try { setProbe(JSON.parse(sessionStorage.getItem("probe") ?? "null")); } catch {} }, []);
+  useEffect(() => {
+    try {
+      const p = JSON.parse(sessionStorage.getItem("probe") ?? "null");
+      setProbe(p);
+      if (p && isTikTokLive(p)) {
+        // TikTok no guarda los directos: lo normal es grabar y sacar clips de la grabación.
+        const w = RECORD_WINDOWS.filter((x) => x <= P.recordMin * 60).slice(-1)[0] ?? RECORD_WINDOWS[0];
+        const first = Math.min(1800, w);   // 30 min por defecto (o lo máximo del plan si es menos)
+        setMode("auto"); setWin(first); setCount(suggestedClips(first, P.recordClips));
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   if (!probe) return (
     <div className="card flex flex-col items-center gap-3 py-12 text-center">
       <p className="text-zinc-400">Primero pega el enlace de un directo o vídeo.</p>
@@ -32,6 +44,8 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
   );
 
   const isTrial = !isAdmin && plan === "trial", auto = mode === "auto", vod = probe.kind === "vod";
+  const ttRec = isTikTokLive(probe);   // directo de TikTok → se graba
+  const winLabel = (w: number) => (w >= 3600 ? `${w / 3600} h` : `${w / 60} min`);
   const fmt = auto && format === "image" ? "video" : format;
   const video = fmt === "video";
   const subs = subStyle !== null;
@@ -44,7 +58,9 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
   const maxDur = Math.min(P.maxDuration, room);
   const dur = Math.min(duration, Math.max(auto ? 5 : 1, maxDur));
   const perClip = isAdmin || isTrial ? 0 : clipCost(fmt, quality, dur);
-  const maxCount = isTrial ? Math.max(1, Math.min(5, trialsLeft)) : 5;
+  const maxCount = ttRec && auto
+    ? Math.max(1, Math.min(P.recordClips, isTrial ? trialsLeft : 30))
+    : isTrial ? Math.max(1, Math.min(5, trialsLeft)) : 5;
   const n = auto ? Math.min(count, maxCount) : 1;
   const total = perClip * n;
   const badStart = !auto && vod && (startSec === null || startSec >= probe.duration);
@@ -67,12 +83,16 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
         {/* Modo */}
         <div className="grid grid-cols-2 gap-1 rounded-2xl border border-line bg-card p-1">
           <ModeBtn on={!auto} onClick={() => setMode("manual")} title="Elegir yo el momento" sub="Tú marcas dónde empieza" />
-          <ModeBtn on={auto} onClick={() => setMode("auto")} title={<><SparklesIcon className="h-4 w-4" />Momentos destacados</>} sub="Buscamos los mejores por ti" />
+          <ModeBtn on={auto} onClick={() => setMode("auto")}
+            title={ttRec ? <><LiveDot className="h-2 w-2" />Grabar directo</> : <><SparklesIcon className="h-4 w-4" />Momentos destacados</>}
+            sub={ttRec ? "Grabamos y sacamos los mejores clips" : "Buscamos los mejores por ti"} />
         </div>
         {auto && (
           <p className="rounded-2xl border border-accent/30 bg-accent/5 p-4 text-sm text-zinc-300">
             {vod ? "Analizamos el audio del vídeo (y lo más visto en YouTube, si está disponible) para encontrar los momentos con más intensidad, y creamos clips al azar entre los mejores."
-              : `Grabamos ${win / 60} min del directo desde ahora, buscamos los momentos con más intensidad (gritos, risas, aplausos…) y creamos clips al azar entre los mejores.`}
+              : ttRec
+                ? `TikTok no guarda los directos, así que lo grabamos desde ahora durante ${winLabel(win)}. Al terminar, buscamos los momentos con más intensidad (gritos, risas, aplausos…) y sacamos ${n} ${n === 1 ? "clip" : "clips"}. Si el directo acaba antes, usamos lo grabado hasta ese momento.`
+                : `Grabamos ${win / 60} min del directo desde ahora, buscamos los momentos con más intensidad (gritos, risas, aplausos…) y creamos clips al azar entre los mejores.`}
           </p>
         )}
 
@@ -112,10 +132,23 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
 
         <Section title={auto ? "Clips" : "Momento"}>
           {auto ? <>
-            <SubLabel>¿Cuántos clips?</SubLabel>
-            <Row>{[1, 2, 3, 4, 5].map((k) => <Chip key={k} on={n === k} disabled={k > maxCount} onClick={() => setCount(k)}>{k}</Chip>)}</Row>
-            {!vod && <><SubLabel>Tiempo de directo a analizar</SubLabel>
-              <Row>{AUTO_WINDOWS.map((w) => <Chip key={w} on={win === w} disabled={isTrial && w > 120} onClick={() => setWin(w)}>{w / 60} min</Chip>)}</Row></>}
+            {ttRec ? <>
+              <SubLabel>¿Cuánto tiempo grabamos?</SubLabel>
+              <Row>{RECORD_WINDOWS.map((w) => {
+                const locked = w > P.recordMin * 60;
+                return <Chip key={w} on={win === w} disabled={locked} title={locked ? "Disponible en planes superiores" : undefined}
+                  onClick={() => { setWin(w); setCount(suggestedClips(w, maxCount)); }}>{winLabel(w)}</Chip>;
+              })}</Row>
+              {P.recordMin < 180 && <p className="text-xs text-zinc-500">Tu plan graba hasta {winLabel(P.recordMin * 60)}. <Link href="/planes" className="text-accent hover:underline">Grabar más tiempo</Link></p>}
+              <div className="flex items-end justify-between pt-2"><SubLabel>¿Cuántos clips sacamos?</SubLabel><p className="text-2xl font-extrabold tabular-nums">{n}</p></div>
+              <input type="range" className="w-full accent-orange-500" min={1} max={maxCount} step={1} value={n} onChange={(e) => setCount(+e.target.value)} aria-label="Número de clips" disabled={maxCount <= 1} />
+              <p className="text-xs text-zinc-500">Te sugerimos {suggestedClips(win, maxCount)} (uno cada ~5 min de directo). Máximo {maxCount} con tu plan.</p>
+            </> : <>
+              <SubLabel>¿Cuántos clips?</SubLabel>
+              <Row>{[1, 2, 3, 4, 5].map((k) => <Chip key={k} on={n === k} disabled={k > maxCount} onClick={() => setCount(k)}>{k}</Chip>)}</Row>
+              {!vod && <><SubLabel>Tiempo de directo a analizar</SubLabel>
+                <Row>{AUTO_WINDOWS.map((w) => <Chip key={w} on={win === w} disabled={isTrial && w > 120} onClick={() => setWin(w)}>{w / 60} min</Chip>)}</Row></>}
+            </>}
           </> : vod ? <>
             {probe.videoId && (
               <Trimmer videoId={probe.videoId} duration={probe.duration} start={startSec ?? 0} length={fmt === "image" ? 1 : dur}
@@ -171,7 +204,7 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
             {err && <p className="rounded-xl border border-red-900/60 bg-red-950/40 p-3 text-sm text-red-300" role="alert">{err}</p>}
             {cantPay && <p className="text-sm text-amber-400">{isTrial ? `Solo te quedan ${trialsLeft} pruebas.` : `Te faltan ${total - credits} créditos.`}</p>}
             <button className="btn-primary w-full text-lg" disabled={busy || badStart || cantPay} onClick={submit}>
-              {busy ? "Creando…" : auto ? <><SparklesIcon />Crear {n} {n === 1 ? "clip" : "clips"}</> : "Crear clip"}
+              {busy ? "Creando…" : auto && ttRec ? <><LiveDot className="h-2 w-2" />Grabar {winLabel(win)} y sacar {n} {n === 1 ? "clip" : "clips"}</> : auto ? <><SparklesIcon />Crear {n} {n === 1 ? "clip" : "clips"}</> : "Crear clip"}
             </button>
             {!isAdmin && <p className="text-center text-xs text-zinc-500">Si algo falla, te devolvemos {isTrial ? "la prueba" : "los créditos"}.</p>}
           </div>

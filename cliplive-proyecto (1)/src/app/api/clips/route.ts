@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { detectPlatform } from "@/lib/platforms";
+import { detectPlatform, VOD_PLATFORMS } from "@/lib/platforms";
 import { clipCost, QUALITIES, FRAMINGS, type PlanId } from "@/lib/plans";
 import { isAdmin, effectivePlan } from "@/lib/admin";
 import { CAPTION_IDS, DEFAULT_CAPTION, SUB_SIZES, SUB_POSITIONS, SUB_LANGS, subOpt, captionAllowed, CAPTION_TIER, TIER_NAME } from "@/lib/captionStyles";
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   const format = ["video", "audio", "image"].includes(b.format) ? b.format : "video";
   const quality = QUALITIES.includes(b.quality) ? b.quality : 480;
   const kind = b.kind === "vod" ? "vod" : "live";
-  if (kind === "vod" && target.platform !== "youtube") return NextResponse.json({ error: "Los vídeos normales solo se admiten en YouTube." }, { status: 400 });
+  if (kind === "vod" && !VOD_PLATFORMS.includes(target.platform)) return NextResponse.json({ error: "Los vídeos normales solo se admiten de YouTube y TikTok." }, { status: 400 });
   const start = kind === "live" ? Math.max(0, Math.floor(+b.startOffset || 0)) : 0;
   const startAt = kind === "vod" ? Math.max(0, Math.floor(+b.startAt || 0)) : null;
   const duration = format === "image" ? 1 : Math.max(5, Math.floor(+b.duration || 30));

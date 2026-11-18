@@ -24,6 +24,7 @@ export function planFeatures(id: PlanId) {
     `Hasta ${p.maxQuality}p`,
     `Clips de hasta ${Math.round(p.maxDuration / 60)} min`,
     `Retroceder ${p.rewindMin >= 60 ? `${p.rewindMin / 60} h` : `${p.rewindMin} min`} en directos`,
+    `Grabar directos de TikTok hasta ${p.recordMin >= 60 ? `${p.recordMin / 60} h` : `${p.recordMin} min`} (${p.recordClips} clips)`,
     "Momentos destacados y cámara inteligente",
   ];
 }

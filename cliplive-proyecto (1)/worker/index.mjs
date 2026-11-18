@@ -236,8 +236,12 @@ async function autoJob(autoId) {
       // Directo: graba una ventana, busca los mejores momentos dentro y los recorta de esa grabación.
       const fmt = a.format === "audio" ? ["-f", "ba/b", "-x", "--audio-format", "mp3"]
         : ["-f", `bv*[height<=${a.quality}]+ba/b[height<=${a.quality}]`, "--merge-output-format", "mp4"];
+      // La web usa recording_started_at para mostrar "Grabando · 12 de 30 min".
+      await db.from("auto_jobs").update({ recording_started_at: new Date().toISOString() }).eq("id", autoId);
+      // Si el directo termina antes de tiempo, yt-dlp acaba solo y se usa lo grabado hasta ese momento.
       await run("yt-dlp", ["--no-warnings", "--no-playlist", "--no-part", "-o", join(dir, "raw.%(ext)s"), ...fmt,
-        "--downloader", "ffmpeg", "--downloader-args", `ffmpeg:-t ${a.window_s}`, a.source_url], { timeout: (a.window_s + 300) * 1000, maxBuffer: 50_000_000 });
+        "--downloader", "ffmpeg", "--downloader-args", `ffmpeg:-t ${a.window_s}`, a.source_url], { timeout: (a.window_s + 300) * 1000, maxBuffer: 200_000_000 });
+      await db.from("auto_jobs").update({ recording_started_at: null }).eq("id", autoId);   // fin de la grabación: ahora analiza
       const raw = (await readdir(dir)).find((f) => f.startsWith("raw."));
       if (!raw) throw new Error("No se pudo grabar el directo");
       const rms = await loudnessPerSecond(join(dir, raw));

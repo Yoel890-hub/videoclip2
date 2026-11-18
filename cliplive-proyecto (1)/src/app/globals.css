@@ -13,4 +13,22 @@ html, body { overflow-x: hidden; }
 .input { @apply w-full rounded-xl border border-line bg-card2 px-4 py-3 outline-none transition placeholder:text-zinc-500 focus:border-accent focus:ring-4 focus:ring-accent/15; }
 .badge { @apply inline-flex items-center gap-1 rounded-full border border-line bg-card2 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-300; }
 .section-title { @apply text-sm font-bold text-zinc-200; }
+/* ── Suavidad: scroll, esqueletos y entrada de páginas ── */
+html { scroll-behavior: smooth; }
+.skeleton { @apply relative overflow-hidden rounded-xl bg-[#202026]; }
+.skeleton::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer { to { transform: translateX(100%); } }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.page-in { animation: page-in .28s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.fade-in { animation: fade-in .35s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .skeleton::after, .page-in, .fade-in { animation: none; }
+}
+
 .glow { background: radial-gradient(600px 200px at 0% 0%, rgba(255,102,0,.18), transparent 70%), #131316; }
