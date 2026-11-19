@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const info = JSON.parse(stdout);
     const live = !!info.is_live;
     if (!live && !VOD_PLATFORMS.includes(target.platform))
-      return NextResponse.json({ error: `De ${NAMES[target.platform]} solo se pueden sacar clips de directos. Para vídeos usa YouTube o TikTok.` }, { status: 422 });
+      return NextResponse.json({ error: "De TikTok solo se pueden sacar clips de directos: TikTok bloquea la descarga de sus vídeos. Los vídeos de YouTube, Twitch y Kick sí funcionan." }, { status: 422 });
     if (!live && !(info.duration > 0))
       return NextResponse.json({ error: "No se pudo leer la duración del vídeo." }, { status: 422 });
     if (!live && ["is_upcoming", "was_live_processing"].includes(info.live_status))

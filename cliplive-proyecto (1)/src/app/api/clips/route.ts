@@ -3,8 +3,7 @@ import { detectPlatform, VOD_PLATFORMS } from "@/lib/platforms";
 import { clipCost, QUALITIES, FRAMINGS, type PlanId } from "@/lib/plans";
 import { isAdmin, effectivePlan } from "@/lib/admin";
 import { CAPTION_IDS, DEFAULT_CAPTION, SUB_SIZES, SUB_POSITIONS, SUB_LANGS, subOpt, captionAllowed, CAPTION_TIER, TIER_NAME } from "@/lib/captionStyles";
-import { admin, requireUser } from "@/lib/supabase";
-import { clipQueue } from "@/lib/queue";
+import { admin, requireUser, getProfile } from "@/lib/supabase";
 
 export async function GET() {
   const user = await requireUser();
@@ -22,13 +21,13 @@ export async function POST(req: Request) {
   const format = ["video", "audio", "image"].includes(b.format) ? b.format : "video";
   const quality = QUALITIES.includes(b.quality) ? b.quality : 480;
   const kind = b.kind === "vod" ? "vod" : "live";
-  if (kind === "vod" && !VOD_PLATFORMS.includes(target.platform)) return NextResponse.json({ error: "Los vídeos normales solo se admiten de YouTube y TikTok." }, { status: 400 });
+  if (kind === "vod" && !VOD_PLATFORMS.includes(target.platform)) return NextResponse.json({ error: "Los vídeos de TikTok no se pueden recortar (TikTok bloquea su descarga). De TikTok solo se graban directos." }, { status: 400 });
   const start = kind === "live" ? Math.max(0, Math.floor(+b.startOffset || 0)) : 0;
   const startAt = kind === "vod" ? Math.max(0, Math.floor(+b.startAt || 0)) : null;
   const duration = format === "image" ? 1 : Math.max(5, Math.floor(+b.duration || 30));
 
   const db = admin();
-  const { data: prof } = await db.from("profiles").select("plan,trials_used,credits").eq("id", user.id).single();
+  const prof = await getProfile(user.id);   // lo crea si falta
   if (!prof) return NextResponse.json({ error: "Perfil no encontrado" }, { status: 404 });
   const adm = isAdmin(user.email);   // admin: límites del plan Premium, sin coste y sin gastar pruebas
   const plan = effectivePlan(prof.plan as PlanId, adm);
@@ -39,6 +38,10 @@ export async function POST(req: Request) {
   if (format !== "image" && (quality > plan.maxQuality || duration > plan.maxDuration))
     return NextResponse.json({ error: "Tu plan no permite esa calidad o duración." }, { status: 403 });
   if (kind === "live" && start > plan.rewindMin * 60) return NextResponse.json({ error: "Tu plan no permite retroceder tanto." }, { status: 403 });
+  // Clips atascados (en cola más de 30 min sin que el worker los empiece): se cancelan y se devuelve lo cobrado,
+  // para que no ocupen para siempre los "clips a la vez" del usuario.
+  const { data: stale } = await db.from("clips").select("id").eq("user_id", user.id).eq("status", "queued").lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
+  for (const s of stale ?? []) await db.rpc("refund_clip", { p_clip: s.id, p_error: "No llegó a empezar (servidor ocupado o apagado)" });
   const { count } = await db.from("clips").select("id", { count: "exact", head: true }).eq("user_id", user.id).in("status", ["queued", "processing"]);
   if ((count ?? 0) >= plan.concurrent) return NextResponse.json({ error: "Has alcanzado el máximo de clips simultáneos." }, { status: 429 });
 
@@ -52,6 +55,6 @@ export async function POST(req: Request) {
   }
   // Opciones extra del vídeo: subtítulos (con estilo) y encuadre.
   if (format === "video") await db.from("clips").update({ subtitles: b.subtitles === true, subtitle_style: CAPTION_IDS.includes(b.subtitleStyle) ? b.subtitleStyle : DEFAULT_CAPTION, subtitle_size: subOpt(b.subtitleSize, SUB_SIZES, "m"), subtitle_position: subOpt(b.subtitlePosition, SUB_POSITIONS, "auto"), subtitle_lang: subOpt(b.subtitleLang, SUB_LANGS, "original"), framing: FRAMINGS.includes(b.framing) ? b.framing : "center" }).eq("id", id);
-  await clipQueue.add("capture", { clipId: id }, { attempts: 1, removeOnComplete: 1000, removeOnFail: 1000 });
+  // No hace falta avisar a nadie: el clip queda "queued" en la base de datos y el worker lo recoge solo.
   return NextResponse.json({ id, cost }, { status: 201 });
 }

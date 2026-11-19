@@ -28,7 +28,14 @@ export const requireUser = cache(async (): Promise<SessionUser | null> => {
 });
 
 // Perfil del usuario (plan, créditos, pruebas…), también compartido en la misma carga.
+// Si la cuenta no tiene perfil (p. ej. se registró cuando falló la función de alta), se crea en el momento
+// con el plan de prueba, en vez de que la página falle con "Cannot read properties of null (reading 'plan')".
 export const getProfile = cache(async (userId: string) => {
-  const { data } = await admin().from("profiles").select("*").eq("id", userId).single();
-  return data;
+  const db = admin();
+  const { data } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
+  if (data) return data;
+  const { data: u } = await db.auth.admin.getUserById(userId);
+  await db.from("profiles").upsert({ id: userId, email: u?.user?.email ?? null }, { onConflict: "id", ignoreDuplicates: true });
+  const { data: created } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
+  return created;
 });

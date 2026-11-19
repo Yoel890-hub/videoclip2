@@ -90,7 +90,7 @@ export default function Bienvenida() {
               { I: SparklesIcon, t: "Momentos destacados", d: "Analizamos el audio (gritos, risas, aplausos) y lo más visto en YouTube para encontrar los mejores momentos." },
               { I: VideoIcon, t: "Cámara inteligente", d: "El vertical sigue las caras y alterna entre las personas cada pocos segundos para mostrar las reacciones." },
               { I: CaptionsIcon, t: `${CAPTION_STYLES.length} estilos de subtítulos`, d: "Subtítulos automáticos con la palabra que se dice resaltada, que se colocan donde no tapan ninguna cara." },
-              { I: PlayIcon, t: "Directos y vídeos", d: "Graba un directo desde ahora, retrocede en el directo o recorta cualquier parte de un vídeo de YouTube." },
+              { I: PlayIcon, t: "Directos y vídeos", d: "Graba un directo desde ahora, retrocede en el directo o recorta cualquier parte de un vídeo de YouTube, Twitch o Kick." },
               { I: DownloadIcon, t: "Vista previa y descarga", d: "Mira el clip en la página antes de descargarlo. Se guarda 30 días en tu cuenta." },
               { I: CaptionsIcon, t: "Traducción al inglés", d: "Subtítulos en el idioma original o traducidos al inglés para llegar a más público." },
             ].map(({ I, t, d }) => (
@@ -139,7 +139,7 @@ export default function Bienvenida() {
           <div className="mt-10 space-y-3">
             {[
               ["¿Necesito instalar algo?", "No. Todo funciona en el navegador, también desde el móvil."],
-              ["¿De qué plataformas puedo sacar clips?", "Directos de YouTube, Twitch, Kick y TikTok, y vídeos normales de YouTube y TikTok. También sirven los enlaces cortos que da el botón Compartir de TikTok."],
+              ["¿De qué plataformas puedo sacar clips?", "Directos y vídeos de YouTube, Twitch y Kick, y directos de TikTok (TikTok bloquea la descarga de sus vídeos). También sirven los enlaces cortos que da el botón Compartir de TikTok."],
               ["¿Qué pasa si un clip falla?", "Te devolvemos automáticamente los créditos o la prueba gratis."],
               ["¿Cuánto tiempo se guardan mis clips?", "30 días. Puedes descargarlos, renombrarlos o borrarlos cuando quieras."],
               ["¿Puedo usar cualquier vídeo?", "Solo contenido que te pertenezca o que tengas permiso para usar. Respeta los derechos de autor y las normas de cada plataforma."],

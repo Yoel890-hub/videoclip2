@@ -1,7 +1,8 @@
 export type Platform = "youtube" | "twitch" | "kick" | "tiktok";
 
 // Plataformas de las que se pueden recortar vídeos ya publicados (además de directos).
-export const VOD_PLATFORMS: Platform[] = ["youtube", "tiktok"];
+// TikTok no: bloquea la descarga automática de sus vídeos (de TikTok solo se graban directos).
+export const VOD_PLATFORMS: Platform[] = ["youtube", "twitch", "kick"];
 
 // Dominio o cualquier subdominio (vt.tiktok.com, m.youtube.com, clips.twitch.tv…).
 const is = (h: string, d: string) => h === d || h.endsWith("." + d);

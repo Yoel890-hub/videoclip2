@@ -3,8 +3,7 @@ import { detectPlatform, VOD_PLATFORMS } from "@/lib/platforms";
 import { clipCost, QUALITIES, TRIALS, AUTO_WINDOWS, FRAMINGS, RECORD_WINDOWS, recordWindowsFor, type PlanId } from "@/lib/plans";
 import { isAdmin, effectivePlan } from "@/lib/admin";
 import { CAPTION_IDS, DEFAULT_CAPTION, SUB_SIZES, SUB_POSITIONS, SUB_LANGS, subOpt, captionAllowed, CAPTION_TIER, TIER_NAME } from "@/lib/captionStyles";
-import { admin, requireUser } from "@/lib/supabase";
-import { clipQueue } from "@/lib/queue";
+import { admin, requireUser, getProfile } from "@/lib/supabase";
 
 // Clips automáticos de los momentos destacados.
 export async function POST(req: Request) {
@@ -14,7 +13,7 @@ export async function POST(req: Request) {
   const target = detectPlatform(b.url ?? "");
   if (!target) return NextResponse.json({ error: "URL no válida" }, { status: 400 });
   const kind = b.kind === "vod" ? "vod" : "live";
-  if (kind === "vod" && !VOD_PLATFORMS.includes(target.platform)) return NextResponse.json({ error: "Los vídeos normales solo se admiten de YouTube y TikTok." }, { status: 400 });
+  if (kind === "vod" && !VOD_PLATFORMS.includes(target.platform)) return NextResponse.json({ error: "Los vídeos de TikTok no se pueden recortar (TikTok bloquea su descarga). De TikTok solo se graban directos." }, { status: 400 });
   const format = b.format === "audio" ? "audio" : "video";
   const quality = QUALITIES.includes(b.quality) ? b.quality : 480;
   const duration = Math.max(5, Math.floor(+b.duration || 30));
@@ -23,7 +22,7 @@ export async function POST(req: Request) {
   const wantCount = Math.max(1, Math.floor(+b.count || 3));
 
   const db = admin();
-  const { data: prof } = await db.from("profiles").select("plan,trials_used,credits").eq("id", user.id).single();
+  const prof = await getProfile(user.id);   // lo crea si falta
   if (!prof) return NextResponse.json({ error: "Perfil no encontrado" }, { status: 404 });
   const adm = isAdmin(user.email);   // admin: límites del plan Premium, sin coste y sin gastar pruebas
   const plan = effectivePlan(prof.plan as PlanId, adm), isTrial = !adm && prof.plan === "trial";
@@ -50,6 +49,13 @@ export async function POST(req: Request) {
   if (isTrial && prof.trials_used >= TRIALS) return NextResponse.json({ error: "Has agotado tus pruebas gratis." }, { status: 402 });
   if (!isTrial && prof.credits < cost) return NextResponse.json({ error: "No tienes créditos suficientes." }, { status: 402 });
 
+  // Búsquedas atascadas: en cola más de 15 min sin empezar, o "analizando" más de 4 h (la grabación más larga es de 3 h).
+  // Se marcan como error para que no bloqueen al usuario (las búsquedas no cobran hasta crear cada clip).
+  const now = Date.now();
+  await db.from("auto_jobs").update({ status: "error", error: "No llegó a empezar (servidor ocupado o apagado). Inténtalo de nuevo." })
+    .eq("user_id", user.id).eq("status", "queued").lt("created_at", new Date(now - 15 * 60_000).toISOString());
+  await db.from("auto_jobs").update({ status: "error", error: "Se interrumpió. Inténtalo de nuevo." })
+    .eq("user_id", user.id).eq("status", "analyzing").lt("created_at", new Date(now - 4 * 3600_000).toISOString());
   const { count: active } = await db.from("auto_jobs").select("id", { count: "exact", head: true }).eq("user_id", user.id).in("status", ["queued", "analyzing"]);
   if ((active ?? 0) > 0) return NextResponse.json({ error: "Ya hay una búsqueda o grabación en curso. Espera a que termine." }, { status: 429 });
 
@@ -57,6 +63,6 @@ export async function POST(req: Request) {
     source_kind: kind, count, duration_s: duration, window_s: windowS, format, aspect: b.aspect ?? "16:9", quality, cost, is_trial: isTrial, subtitles: format === "video" && b.subtitles === true, subtitle_style: CAPTION_IDS.includes(b.subtitleStyle) ? b.subtitleStyle : DEFAULT_CAPTION, subtitle_size: subOpt(b.subtitleSize, SUB_SIZES, "m"), subtitle_position: subOpt(b.subtitlePosition, SUB_POSITIONS, "auto"), subtitle_lang: subOpt(b.subtitleLang, SUB_LANGS, "original"), framing: FRAMINGS.includes(b.framing) ? b.framing : "auto" })
     .select("id").single();
   if (error || !job) return NextResponse.json({ error: "No se pudo iniciar la búsqueda." }, { status: 500 });
-  await clipQueue.add("auto", { autoId: job.id }, { attempts: 1, removeOnComplete: 1000, removeOnFail: 1000 });
+  // La búsqueda queda "queued" en la base de datos y el worker la recoge sola.
   return NextResponse.json({ id: job.id }, { status: 201 });
 }

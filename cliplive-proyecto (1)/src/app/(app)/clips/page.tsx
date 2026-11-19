@@ -36,7 +36,9 @@ export default async function Clips() {
         const tiktok = a.platform === "tiktok" && a.source_kind === "live";
         const title = a.status === "queued" ? "En cola…"
           : rec != null ? `Grabando el directo · ${fmtMin(rec)} de ${fmtMin(a.window_s)}`
+          : a.stage ? `${a.stage} · ${a.progress ?? 0}%`
           : tiktok ? "Buscando los mejores momentos de la grabación…" : "Buscando los momentos destacados…";
+        const analyzing = rec == null && a.status === "analyzing" && (a.progress ?? 0) > 0;
         return (
           <article key={a.id} className="glow space-y-3 rounded-2xl border border-accent/40 p-4">
             <div className="flex items-center gap-4">
@@ -50,6 +52,12 @@ export default async function Clips() {
                 </p>
               </div>
             </div>
+            {analyzing && (
+              <div className="h-2 overflow-hidden rounded-full bg-zinc-800" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={a.progress} aria-label="Progreso del análisis">
+                <div className="h-full rounded-full bg-accent transition-[width] duration-1000" style={{ width: `${Math.max(2, a.progress)}%` }} />
+              </div>
+            )}
+            {analyzing && a.progress < 80 && <p className="text-xs text-zinc-500">Los vídeos muy largos tardan más: hay que escuchar todo el audio para encontrar los mejores momentos. Puedes cerrar la página.</p>}
             {rec != null && (
               <div className="h-2 overflow-hidden rounded-full bg-zinc-800" role="progressbar" aria-valuemin={0} aria-valuemax={a.window_s} aria-valuenow={Math.round(rec)} aria-label="Progreso de la grabación">
                 <div className="h-full rounded-full bg-accent transition-[width] duration-1000" style={{ width: `${Math.max(1, (rec / a.window_s) * 100)}%` }} />

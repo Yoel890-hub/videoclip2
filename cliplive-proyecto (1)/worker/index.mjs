@@ -1,10 +1,8 @@
-// Worker de captura: toma trabajos de Redis, graba el directo con yt-dlp + ffmpeg y sube el archivo a Supabase Storage.
+// Worker de captura: toma trabajos de la base de datos (Supabase), graba el directo con yt-dlp + ffmpeg y sube el archivo a Supabase Storage.
 // Requiere en el PATH: yt-dlp, ffmpeg y un runtime de JS (Deno) para YouTube. Ver README.
-import { Worker, Queue } from "bullmq";
 import { loudnessPerSecond, heatPerSecond, pickMoments } from "./highlights.mjs";
 import { videoSize, cropSize, fixedX, faceTimeline, planCamera, faceBoxesFn, sendcmdFile, faceModelAvailable } from "./framing.mjs";
 import { buildAss, parseWhisperWords, DEFAULT_CAPTION } from "./captions.mjs";
-import IORedis from "ioredis";
 import { createClient } from "@supabase/supabase-js";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -16,8 +14,6 @@ import { existsSync } from "node:fs";
 const run = promisify(execFile);
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const BUCKET = process.env.STORAGE_BUCKET || "clips";
-const connection = new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
-const queue = new Queue("clips", { connection });
 const CRF = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart"];
 const CROP = { "9:16": "crop=ih*9/16:ih", "1:1": "crop=min(iw\\,ih):min(iw\\,ih)", "16:9": null };
 const MIME = { mp4: "video/mp4", mp3: "audio/mpeg", jpg: "image/jpeg" };
@@ -44,6 +40,34 @@ function estimate(prog, from, to, seconds, stage, linear = false) {
   }, 1000);
   return () => clearInterval(timer);
 }
+// yt-dlp con porcentaje de descarga (lee las líneas "[download]  42.3%").
+function ytdlpProgress(args, { onPct, timeout }) {
+  return new Promise((resolve, reject) => {
+    const p = spawn("yt-dlp", ["--newline", ...args]);
+    let err = "";
+    const kill = setTimeout(() => p.kill("SIGKILL"), timeout);
+    const onData = (d) => {
+      const m = String(d).match(/\[download\]\s+([\d.]+)%/g);
+      if (m) onPct(Math.min(1, parseFloat(m[m.length - 1].replace(/[^\d.]/g, "")) / 100));
+    };
+    p.stdout.on("data", onData);
+    p.stderr.on("data", (d) => { onData(d); err = (err + d).slice(-4000); });
+    p.on("error", reject);
+    p.on("close", (code) => { clearTimeout(kill); code === 0 ? resolve() : reject(new Error(`yt-dlp: ${err.trim().split("\n").pop()}`)); });
+  });
+}
+// Progreso de una búsqueda de momentos (auto_jobs.progress / stage), sin saturar la base de datos.
+function autoProgressFor(autoId) {
+  let last = { pct: -1, stage: "", at: 0 };
+  return async (pct, stage) => {
+    pct = Math.max(0, Math.min(99, Math.round(pct)));
+    const now = Date.now();
+    if (stage === last.stage && (pct - last.pct < 2 || now - last.at < 2000)) return;
+    last = { pct, stage, at: now };
+    await db.from("auto_jobs").update({ progress: pct, stage }).eq("id", autoId);
+  };
+}
+
 // ffmpeg con porcentaje real (lee -progress).
 function ffmpegProgress(args, { cwd, len, onPct, timeout = 900_000 }) {
   return new Promise((resolve, reject) => {
@@ -208,28 +232,33 @@ async function chargeClip(a, extra) {
 }
 
 // Clips automáticos: analiza el audio, elige momentos destacados al azar y crea los clips.
-async function autoJob(autoId) {
-  const { data: a } = await db.from("auto_jobs").select("*").eq("id", autoId).single();
-  if (!a || a.status !== "queued") return;
-  await db.from("auto_jobs").update({ status: "analyzing" }).eq("id", autoId);
+async function autoJob(a) {
+  const autoId = a.id;
   const dir = await mkdtemp(join(tmpdir(), "auto-"));
   let created = 0;
   try {
     const { stdout: js } = await run("yt-dlp", ["-J", "--no-warnings", "--no-playlist", "--skip-download", a.source_url], { timeout: 60_000, maxBuffer: 50_000_000 });
     const info = JSON.parse(js);
     if (a.source_kind === "vod") {
-      // Solo el audio (pesa poco) para analizar; luego cada clip se recorta con el flujo normal.
-      await run("yt-dlp", ["--no-warnings", "--no-playlist", "--no-part", "-f", "wa[protocol=https]/ba[protocol=https]/wa/ba/b", "-o", join(dir, "audio.%(ext)s"), a.source_url], { timeout: 1_800_000, maxBuffer: 50_000_000 });
+      // Solo hace falta el sonido para analizar: se baja el audio o, si la plataforma no lo da aparte
+      // (Twitch, Kick), la calidad MÁS BAJA (160p), con 16 trozos a la vez. Un vídeo de 12 h de Kick pasó
+      // de ~8 h de descarga (1080p, de uno en uno) a ~35 min. Luego cada clip se recorta con su calidad.
+      const aprog = autoProgressFor(autoId);
+      await aprog(1, "Descargando el audio del vídeo");
+      await ytdlpProgress(["--no-warnings", "--no-playlist", "--no-part", "-N", "16",
+        "-f", "wa[protocol=https]/ba[protocol=https]/worstaudio/worst", "-o", join(dir, "audio.%(ext)s"), a.source_url],
+        { timeout: Math.max(1_800_000, (info.duration ?? 0) * 400), onPct: (k) => aprog(1 + 79 * k, "Descargando el audio del vídeo") });
+      await aprog(82, "Buscando los mejores momentos");
       const audio = (await readdir(dir)).find((f) => f.startsWith("audio."));
       if (!audio) throw new Error("No se pudo descargar el audio");
       const rms = await loudnessPerSecond(join(dir, audio));
       const heat = info.heatmap?.length ? heatPerSecond(info.heatmap, rms.length) : null;
       const starts = pickMoments(rms, a.duration_s, a.count, { heat });
+      await aprog(95, "Creando los clips");
       console.log("auto", autoId, "momentos:", starts.join(", "), heat ? "(con heatmap)" : "(solo audio)");
       for (const s of starts) {
         const id = await chargeClip(a, { startAt: s, title: info.title });
         if (!id) break;
-        await queue.add("capture", { clipId: id }, { attempts: 1, removeOnComplete: 1000, removeOnFail: 1000 });
         created++;
       }
     } else {
@@ -273,12 +302,9 @@ async function autoJob(autoId) {
   }
 }
 
-new Worker("clips", async (job) => {
-  if (job.name === "auto") return autoJob(job.data.autoId);
-  const { clipId } = job.data;
-  const { data: c } = await db.from("clips").select("*").eq("id", clipId).single();
-  if (!c || c.status !== "queued") return;
-  await db.from("clips").update({ status: "processing" }).eq("id", clipId);
+// Un clip ya reservado (status = processing) por claim_clip().
+async function clipJob(c) {
+  const clipId = c.id;
   const dir = await mkdtemp(join(tmpdir(), "clip-"));
   try {
     const prog = progressFor(clipId);
@@ -291,5 +317,57 @@ new Worker("clips", async (job) => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-}, { connection, concurrency: Number(process.env.WORKER_CONCURRENCY ?? 2) });
-console.log("Worker de ClipLive listo");
+}
+
+// ── Cola en la base de datos (sin Redis ni Docker) ──
+// Cada 2 s mira si hay trabajos pendientes y se queda con ellos mientras tenga huecos libres.
+// claim_clip / claim_auto_job reservan el trabajo de forma atómica (dos workers nunca cogen el mismo).
+const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 2));
+let active = 0, polling = false;
+
+async function claim() {
+  // Primero los clips (son cortos) y después las búsquedas/grabaciones (pueden durar horas).
+  const { data: clips, error: e1 } = await db.rpc("claim_clip");
+  if (e1) throw new Error(e1.message);
+  if (clips?.length) return { kind: "clip", job: clips[0] };
+  const { data: autos, error: e2 } = await db.rpc("claim_auto_job");
+  if (e2) throw new Error(e2.message);
+  if (autos?.length) return { kind: "auto", job: autos[0] };
+  return null;
+}
+
+async function poll() {
+  if (polling) return;
+  polling = true;
+  try {
+    while (active < CONCURRENCY) {
+      const next = await claim();
+      if (!next) break;
+      active++;
+      console.log(next.kind === "clip" ? "clip" : "búsqueda", next.job.id, "empieza", `(${active}/${CONCURRENCY})`);
+      (next.kind === "clip" ? clipJob(next.job) : autoJob(next.job))
+        .catch((e) => console.error(next.kind, next.job.id, "error inesperado:", e.message))
+        .finally(() => { active--; poll(); });
+    }
+  } catch (e) {
+    console.error("No se pudo consultar la cola en Supabase:", e.message);
+  } finally {
+    polling = false;
+  }
+}
+
+// Al arrancar: lo que se quedó a medias porque el worker se apagó no se puede retomar → se cancela
+// (devolviendo créditos o la prueba) para que no quede "procesando" para siempre.
+async function recoverInterrupted() {
+  const { data: stuck } = await db.from("clips").select("id").eq("status", "processing");
+  for (const c of stuck ?? []) await db.rpc("refund_clip", { p_clip: c.id, p_error: "Se interrumpió porque el servidor se reinició" });
+  const { data: autos } = await db.from("auto_jobs").update({ status: "error", error: "Se interrumpió porque el servidor se reinició. Inténtalo de nuevo." })
+    .eq("status", "analyzing").select("id");
+  const n = (stuck?.length ?? 0) + (autos?.length ?? 0);
+  if (n) console.log("Cancelados", n, "trabajos que quedaron a medias (créditos devueltos)");
+}
+
+await recoverInterrupted();
+setInterval(poll, 2000);
+poll();
+console.log(`Worker de ClipLive listo · cola en Supabase · ${CONCURRENCY} trabajos a la vez`);

@@ -14,8 +14,6 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.46.0",
-    "bullmq": "^5.30.0",
-    "ioredis": "^5.4.1",
     "next": "^15.0.3",
     "onnxruntime-node": "^1.31.1",
     "react": "^19.0.0",
