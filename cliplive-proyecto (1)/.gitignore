@@ -11,3 +11,7 @@ next-env.d.ts
 # Modelos de Whisper (pesados)
 models/
 .next-prod/
+
+# Programas que instala scripts/render-setup.sh en Render
+bin/
+worker/fonts/

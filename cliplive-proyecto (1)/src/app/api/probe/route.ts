@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { detectPlatform, isShortLink, resolveShortLink, VOD_PLATFORMS } from "@/lib/platforms";
 import { requireUser } from "@/lib/supabase";
 const run = promisify(execFile);
+
+// En Render, yt-dlp y Deno se instalan en ./bin: se añade al PATH para que se encuentren.
+const BIN = join(process.cwd(), "bin");
+if (existsSync(BIN) && !process.env.PATH?.includes(BIN)) process.env.PATH = BIN + (process.platform === "win32" ? ";" : ":") + process.env.PATH;
 
 const NAMES: Record<string, string> = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok" };
 

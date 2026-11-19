@@ -1,0 +1,2 @@
+# Los scripts de bash siempre con saltos de línea de Linux (Render no ejecuta los de Windows)
+*.sh text eol=lf

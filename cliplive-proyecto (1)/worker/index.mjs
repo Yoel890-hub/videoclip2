@@ -12,6 +12,9 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 
 const run = promisify(execFile);
+
+// En Render los programas (yt-dlp, ffmpeg, deno) se instalan en ./bin: se añade al PATH para encontrarlos.
+if (existsSync(join(process.cwd(), "bin"))) process.env.PATH = join(process.cwd(), "bin") + (process.platform === "win32" ? ";" : ":") + process.env.PATH;
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const BUCKET = process.env.STORAGE_BUCKET || "clips";
 const CRF = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart"];
@@ -86,6 +89,7 @@ function ffmpegProgress(args, { cwd, len, onPct, timeout = 900_000 }) {
 
 // ── Subtítulos automáticos (Whisper dentro de ffmpeg) ──
 const WHISPER_MODEL = process.env.WHISPER_MODEL || join(process.cwd(), "models", "ggml-base.bin");
+const FONTS_DIR = join(process.cwd(), "worker", "fonts");
 const filterPath = (p) => `'${p.replace(/\\/g, "/").replace(/:/g, "\\:")}'`;   // ruta segura dentro de un filtro de ffmpeg
 
 // Transcribe [ss, ss+len) de `input` palabra por palabra → [{ start, end, text }] en ms (vacío si no hay voz).
@@ -144,7 +148,8 @@ async function encodeVideo(dir, input, { ss = 0, len, aspect, framing, subtitles
     const words = await transcribeWords(dir, input, ss, len, subOpts.lang);
     if (words.length) {
       await writeFile(join(dir, "subs.ass"), buildAss(words, subtitleStyle ?? DEFAULT_CAPTION, outW, outH, { faceBoxes, size: subOpts.size, position: subOpts.position }));
-      filters.push("subtitles=subs.ass");
+      // En Linux (Render) las fuentes van en worker/fonts; en Windows se usan las del sistema.
+      filters.push(existsSync(FONTS_DIR) ? `subtitles=subs.ass:fontsdir=${filterPath(FONTS_DIR)}` : "subtitles=subs.ass");
     }
   }
   await prog(62, "Editando el vídeo");

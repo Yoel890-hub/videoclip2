@@ -25,6 +25,11 @@ export const CAPTION_PRESETS = {
 };
 export const DEFAULT_CAPTION = "clasico";
 
+// Las fuentes de Windows no existen en Linux (Render). Allí se usan equivalentes gratuitas casi idénticas,
+// que scripts/render-setup.sh descarga en worker/fonts.
+const LINUX_FONTS = { "Arial Black": "Archivo Black", Impact: "Anton", Georgia: "Gelasio", "Courier New": "Courier Prime", Arial: "Arimo" };
+const fontName = (f) => (process.platform === "win32" ? f : LINUX_FONTS[f] ?? f);
+
 const clean = (t) => t.replace(/[{}\\]/g, "").trim();
 const ts = (ms) => {
   const cs = Math.max(0, Math.round(ms / 10));
@@ -58,7 +63,7 @@ export function buildAss(words, styleId, W, H, opts = {}) {
   const marginV = Math.round(H * (vertical ? 0.2 : 0.08));
   const boxed = !!p.box;
   const style = [
-    "Default", p.font, fs,
+    "Default", fontName(p.font), fs,
     ass(p.color), ass(p.active ?? p.color), ass(boxed ? p.box : (p.outline ?? "#000000")), boxed ? ass(p.box) : ass("#000000", "80"),
     p.bold || p.font === "Arial Black" || p.font === "Impact" ? -1 : 0, p.italic ? -1 : 0, 0, 0, 100, 100, 0, 0,
     boxed ? 3 : 1, boxed ? Math.round(fs * 0.25) : bord, shadow, 2, Math.round(W * 0.06), Math.round(W * 0.06), marginV, 1,
