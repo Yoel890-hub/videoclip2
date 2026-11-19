@@ -9,9 +9,9 @@ services:
     runtime: node
     plan: starter            # $7/mes. El plan gratis se "duerme" tras 15 min sin visitas.
     region: virginia         # EE. UU. costa este: lo más cercano a República Dominicana y a Supabase
-    rootDir: "cliplive-proyecto (1)"
-    buildCommand: npm ci && bash scripts/render-setup.sh web && npm run build
-    startCommand: PATH="$PWD/bin:$PATH" npm run start
+    # Render no admite espacios ni paréntesis en rootDir, así que se entra en la carpeta con cd.
+    buildCommand: 'cd "cliplive-proyecto (1)" && npm ci && bash scripts/render-setup.sh web && npm run build'
+    startCommand: 'cd "cliplive-proyecto (1)" && PATH="$PWD/bin:$PATH" npm run start'
     autoDeploy: true          # cada vez que subes a GitHub (rama main) se actualiza sola
     envVars:
       - key: NODE_VERSION
@@ -50,9 +50,8 @@ services:
     runtime: node
     plan: standard           # $25/mes, 2 GB de RAM: lo mínimo para Whisper y la detección de caras
     region: virginia
-    rootDir: "cliplive-proyecto (1)"
-    buildCommand: npm ci && bash scripts/render-setup.sh worker
-    startCommand: PATH="$PWD/bin:$PATH" node worker/index.mjs
+    buildCommand: 'cd "cliplive-proyecto (1)" && npm ci && bash scripts/render-setup.sh worker'
+    startCommand: 'cd "cliplive-proyecto (1)" && PATH="$PWD/bin:$PATH" node worker/index.mjs'
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
