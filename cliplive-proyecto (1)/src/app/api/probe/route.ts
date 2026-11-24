@@ -64,6 +64,11 @@ export async function POST(req: Request) {
     });
   } catch (e: any) {
     const msg = String(e?.stderr ?? e?.message ?? "");
+    // El motivo exacto queda en los Logs del servidor (Render → cliplive-web → Logs).
+    console.error("probe", target.platform, target.url, "→", msg.trim().split("\n").filter(Boolean).slice(-2).join(" | ").slice(0, 400));
+    // YouTube bloquea a veces las peticiones desde servidores en la nube (no desde casa).
+    if (/confirm you.?re not a bot|sign in to confirm/i.test(msg))
+      return NextResponse.json({ error: "YouTube está bloqueando las descargas desde nuestro servidor en este momento. Inténtalo más tarde." }, { status: 422 });
     if (/not currently live|is offline|not live/i.test(msg))
       return NextResponse.json({ error: "Ese directo no está en emisión ahora mismo." }, { status: 422 });
     if (target.platform === "tiktok" && /403|forbidden/i.test(msg))
