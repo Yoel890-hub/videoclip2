@@ -19,7 +19,7 @@ if (existsSync(join(process.cwd(), "bin"))) process.env.PATH = join(process.cwd(
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const BUCKET = process.env.STORAGE_BUCKET || "clips";
 const YOUTUBE_MODE = process.env.YOUTUBE_WORKER_MODE || "direct";
-const PLATFORMS = YOUTUBE_MODE === "external" ? ["twitch", "kick", "tiktok"]
+const PLATFORMS = YOUTUBE_MODE === "external" ? ["twitch", "kick", "tiktok", "file"]
   : YOUTUBE_MODE === "youtube-only" ? ["youtube"] : null;
 const YOUTUBE_ERROR = "YouTube rechazó la descarga desde el servidor. Inténtalo en unos minutos.";
 const CRF = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart"];
@@ -218,7 +218,47 @@ async function captureVod(c, dir, prog = noop) {
   return "mp4";
 }
 
+function originalKey(c) {
+  const prefix = `originals/${c.user_id}/`;
+  return c.platform === "file" && c.source_url.startsWith(prefix)
+    && /^[0-9a-f-]{36}\.mp4$/.test(c.source_url.slice(prefix.length)) ? c.source_url : null;
+}
+
+async function captureOriginal(c, dir, prog) {
+  const key = originalKey(c);
+  if (!key) throw new Error("Original inválido");
+  await prog(5, "Abriendo el archivo original");
+  const { data, error } = await db.storage.from(BUCKET).download(key);
+  if (error || !data) throw new Error("No se pudo leer el original");
+  const input = join(dir, "original.mp4");
+  await writeFile(input, Buffer.from(await data.arrayBuffer()));
+  // Abrir únicamente el contenedor local, sin referencias externas de QuickTime.
+  const args = ["-y", "-nostdin", "-loglevel", "error", "-protocol_whitelist", "file", "-f", "mov",
+    "-enable_drefs", "0", "-ss", String(c.start_at_s ?? 0), "-i", input, "-t", String(c.duration_s)];
+  const scale = `scale=w='min(iw,${c.quality * 2})':h='min(ih,${c.quality})':force_original_aspect_ratio=decrease:force_divisible_by=2`;
+  const options = { timeout: (120 + c.duration_s * 3) * 1000 };
+  if (c.format === "audio") {
+    await run("ffmpeg", [...args, "-map", "0:a:0", "-vn", join(dir, "final.mp3")], options);
+    return "mp3";
+  }
+  if (c.format === "image") {
+    await run("ffmpeg", [...args, "-map", "0:v:0", "-vf", scale, "-frames:v", "1", join(dir, "final.jpg")], options);
+    return "jpg";
+  }
+  const edit = c.aspect !== "16:9" || c.subtitles;
+  const segment = join(dir, edit ? "segment.mp4" : "final.mp4");
+  await run("ffmpeg", [...args, "-map", "0:v:0", "-map", "0:a:0?", "-vf", scale, "-pix_fmt", "yuv420p", ...CRF, segment], options);
+  const { stdout } = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width", "-of", "csv=p=0", segment]);
+  if (!(Number(stdout.trim()) > 0)) throw new Error("El tramo seleccionado no contiene vídeo");
+  if (!edit) return "mp4";
+  await encodeVideo(dir, segment, { len: c.duration_s, aspect: c.aspect, framing: c.framing, subtitles: c.subtitles,
+    subtitleStyle: c.subtitle_style, subOpts: { size: c.subtitle_size, position: c.subtitle_position, lang: c.subtitle_lang },
+    out: join(dir, "final.mp4"), prog });
+  return "mp4";
+}
+
 async function capture(c, dir, prog = noop) {
+  if (c.platform === "file") return captureOriginal(c, dir, prog);
   if (c.source_kind === "vod") return captureVod(c, dir, prog);
   const out = join(dir, "raw.%(ext)s");
   const base = ["--no-warnings", "--no-playlist", "-o", out, "--no-part"];
@@ -374,11 +414,17 @@ async function clipJob(c) {
   } catch (e) {
     console.error("clip", clipId, "falló:", e.message);
     // Devuelve créditos (o la prueba) de forma atómica y marca el error.
-    const message = c.platform === "youtube" && youtubeBlocked(e) ? YOUTUBE_ERROR
+    const message = c.platform === "file" ? "No se pudo recortar el archivo. Comprueba el formato y el minuto de inicio."
+      : c.platform === "youtube" && youtubeBlocked(e) ? YOUTUBE_ERROR
       : c.source_kind === "vod" ? "No se pudo crear el clip" : "No se pudo capturar el directo";
     await db.rpc("refund_clip", { p_clip: clipId, p_error: message });
   } finally {
     await rm(dir, { recursive: true, force: true });
+    const key = originalKey(c);
+    if (key) {
+      const { error } = await db.storage.from(BUCKET).remove([key]);
+      if (error) console.error("Limpieza del original", clipId, error.message);
+    }
   }
 }
 
@@ -424,9 +470,13 @@ async function poll() {
 // Al arrancar: lo que se quedó a medias porque el worker se apagó no se puede retomar → se cancela
 // (devolviendo créditos o la prueba) para que no quede "procesando" para siempre.
 async function recoverInterrupted() {
-  const interrupted = db.from("clips").select("id").eq("status", "processing");
+  const interrupted = db.from("clips").select("id,user_id,platform,source_url").eq("status", "processing");
   const { data: stuck } = await (PLATFORMS ? interrupted.in("platform", PLATFORMS) : interrupted);
-  for (const c of stuck ?? []) await db.rpc("refund_clip", { p_clip: c.id, p_error: "Se interrumpió porque el servidor se reinició" });
+  for (const c of stuck ?? []) {
+    await db.rpc("refund_clip", { p_clip: c.id, p_error: "Se interrumpió porque el servidor se reinició" });
+    const key = originalKey(c);
+    if (key) await db.storage.from(BUCKET).remove([key]);
+  }
   const autoInterrupted = db.from("auto_jobs").update({ status: "error", error: "Se interrumpió porque el servidor se reinició. Inténtalo de nuevo." })
     .eq("status", "analyzing");
   if (PLATFORMS) autoInterrupted.in("platform", PLATFORMS);

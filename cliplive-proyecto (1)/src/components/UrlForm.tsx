@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowRightIcon } from "@/components/Icons";
 import YouTubeClipLink from "@/components/YouTubeClipLink";
+import Link from "next/link";
 
 export default function UrlForm() {
   const [url, setUrl] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
@@ -33,6 +34,7 @@ export default function UrlForm() {
         </button>
       </div>
       {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
+      <Link href="/nuevo?origen=archivo" className="btn-ghost">Crear clip desde mi archivo</Link>
       {fallbackUrl && <YouTubeClipLink url={fallbackUrl} />}
     </form>
   );

@@ -4,6 +4,8 @@ import { clipCost, QUALITIES, FRAMINGS, type PlanId } from "@/lib/plans";
 import { isAdmin, effectivePlan } from "@/lib/admin";
 import { CAPTION_IDS, DEFAULT_CAPTION, SUB_SIZES, SUB_POSITIONS, SUB_LANGS, subOpt, captionAllowed, CAPTION_TIER, TIER_NAME } from "@/lib/captionStyles";
 import { admin, requireUser, getProfile } from "@/lib/supabase";
+import { ORIGINAL_MAX_BYTES, ORIGINAL_MAX_MB, readOriginal } from "@/lib/original-file";
+import { BUCKET } from "@/lib/storage";
 
 export async function GET() {
   const user = await requireUser();
@@ -15,13 +17,19 @@ export async function GET() {
 export async function POST(req: Request) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  const b = await req.json();
-  const target = detectPlatform(b.url ?? "");
+  const original = req.headers.get("content-type") === "application/octet-stream";
+  if (original && Number(req.headers.get("content-length")) > ORIGINAL_MAX_BYTES)
+    return NextResponse.json({ error: `El archivo supera los ${ORIGINAL_MAX_MB} MB.` }, { status: 413 });
+  let b;
+  try { b = original ? JSON.parse(req.headers.get("x-clip-options") ?? "null") : await req.json(); }
+  catch { b = null; }
+  if (!b || typeof b !== "object") return NextResponse.json({ error: "Opciones de clip inválidas." }, { status: 400 });
+  const target = original ? { platform: "file" as const, url: `originals/${user.id}/${crypto.randomUUID()}.mp4` } : detectPlatform(b.url ?? "");
   if (!target) return NextResponse.json({ error: "URL no válida" }, { status: 400 });
   const format = ["video", "audio", "image"].includes(b.format) ? b.format : "video";
   const quality = QUALITIES.includes(b.quality) ? b.quality : 480;
-  const kind = b.kind === "vod" ? "vod" : "live";
-  if (kind === "vod" && !VOD_PLATFORMS.includes(target.platform)) return NextResponse.json({ error: "Los vídeos de TikTok no se pueden recortar (TikTok bloquea su descarga). De TikTok solo se graban directos." }, { status: 400 });
+  const kind = original || b.kind === "vod" ? "vod" : "live";
+  if (kind === "vod" && target.platform !== "file" && !VOD_PLATFORMS.includes(target.platform)) return NextResponse.json({ error: "Los vídeos de TikTok no se pueden recortar (TikTok bloquea su descarga). De TikTok solo se graban directos." }, { status: 400 });
   const start = kind === "live" ? Math.max(0, Math.floor(+b.startOffset || 0)) : 0;
   const startAt = kind === "vod" ? Math.max(0, Math.floor(+b.startAt || 0)) : null;
   const duration = format === "image" ? 1 : Math.max(5, Math.floor(+b.duration || 30));
@@ -40,16 +48,27 @@ export async function POST(req: Request) {
   if (kind === "live" && start > plan.rewindMin * 60) return NextResponse.json({ error: "Tu plan no permite retroceder tanto." }, { status: 403 });
   // Clips atascados (en cola más de 30 min sin que el worker los empiece): se cancelan y se devuelve lo cobrado,
   // para que no ocupen para siempre los "clips a la vez" del usuario.
-  const { data: stale } = await db.from("clips").select("id").eq("user_id", user.id).eq("status", "queued").lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
-  for (const s of stale ?? []) await db.rpc("refund_clip", { p_clip: s.id, p_error: "No llegó a empezar (servidor ocupado o apagado)" });
+  const { data: stale } = await db.from("clips").select("id,platform,source_url").eq("user_id", user.id).eq("status", "queued").lt("created_at", new Date(Date.now() - 30 * 60_000).toISOString());
+  for (const s of stale ?? []) {
+    const refund = await db.rpc("refund_clip", { p_clip: s.id, p_error: "No llegó a empezar (servidor ocupado o apagado)" });
+    if (!refund.error && s.platform === "file" && s.source_url.startsWith(`originals/${user.id}/`))
+      await db.storage.from(BUCKET).remove([s.source_url]);
+  }
   const { count } = await db.from("clips").select("id", { count: "exact", head: true }).eq("user_id", user.id).in("status", ["queued", "processing"]);
   if ((count ?? 0) >= plan.concurrent) return NextResponse.json({ error: "Has alcanzado el máximo de clips simultáneos." }, { status: 429 });
 
   const isTrial = !adm && prof.plan === "trial";
   const cost = adm || isTrial ? 0 : clipCost(format, quality, duration);
+  if (original) {
+    const bytes = await readOriginal(req);
+    if (!bytes) return NextResponse.json({ error: `Selecciona un MP4 o MOV de hasta ${ORIGINAL_MAX_MB} MB.` }, { status: 400 });
+    const { error: uploadError } = await db.storage.from(BUCKET).upload(target.url, bytes, { contentType: "video/mp4" });
+    if (uploadError) return NextResponse.json({ error: "No pudimos guardar el original. Intenta subirlo de nuevo." }, { status: 503 });
+  }
   const { data: id, error } = await db.rpc("create_clip", { p_user: user.id, p_platform: target.platform, p_url: target.url,
     p_format: format, p_aspect: b.aspect ?? "16:9", p_quality: quality, p_start: start, p_duration: duration, p_cost: cost, p_trial: isTrial, p_kind: kind, p_start_at: startAt });
   if (error) {
+    if (original && error.code) await db.storage.from(BUCKET).remove([target.url]);
     const msg = error.message.includes("NO_CREDITS") ? "No tienes créditos suficientes." : error.message.includes("NO_TRIALS") ? "Has agotado tus pruebas gratis." : "No se pudo crear el clip.";
     return NextResponse.json({ error: msg }, { status: 402 });
   }

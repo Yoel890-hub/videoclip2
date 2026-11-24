@@ -4,7 +4,7 @@ import ClipMedia from "@/components/ClipMedia";
 import YouTubeClipLink from "@/components/YouTubeClipLink";
 
 const FMT: Record<string, string> = { video: "Vídeo", audio: "Audio MP3", image: "Captura" };
-const PLATFORM: Record<string, string> = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok" };
+const PLATFORM: Record<string, string> = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok", file: "Archivo original" };
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
@@ -65,7 +65,7 @@ export default function ClipCard({ c }: { c: any }) {
           <span className="badge normal-case">{c.duration_s}s</span>
           {c.source_kind === "vod" && c.start_at_s != null && <span className="badge normal-case">desde {clock(c.start_at_s)}</span>}
         </div>
-        <ClipActions id={c.id} title={c.title ?? c.source_url} canDelete={!working} />
+        <ClipActions id={c.id} title={c.title ?? (c.platform === "file" ? "Clip de mi archivo" : c.source_url)} canDelete={!working} />
         {c.status === "error" && c.platform === "youtube" && <YouTubeClipLink url={c.source_url} />}
         {ready && (
           <div className="mt-auto space-y-2">

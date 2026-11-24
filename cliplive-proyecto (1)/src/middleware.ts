@@ -31,4 +31,5 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 // Las imágenes y el icono de la pestaña son públicos (sin esto, sin sesión redirigirían al login).
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)"] };
+// La ruta de clips autentica cada petición y recibe el vídeo como un flujo sin clonarlo.
+export const config = { matcher: ["/((?!api/clips$|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)"] };

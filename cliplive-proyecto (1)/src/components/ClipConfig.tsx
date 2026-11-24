@@ -7,23 +7,33 @@ import Trimmer from "@/components/Trimmer";
 import CaptionPicker from "@/components/CaptionPicker";
 import { CAPTION_STYLES, SUB_SIZES, SUB_POSITIONS, SUB_LANGS } from "@/lib/captionStyles";
 import { SparklesIcon, VideoIcon, HeadphonesIcon, ImageIcon, LiveDot } from "@/components/Icons";
+import { ORIGINAL_MAX_BYTES, ORIGINAL_MAX_MB } from "@/lib/original-file";
 
 const STARTS = [{ l: "En vivo", s: 0 }, { l: "1m", s: 60 }, { l: "2m", s: 120 }, { l: "5m", s: 300 }, { l: "10m", s: 600 }, { l: "30m", s: 1800 }, { l: "60m", s: 3600 }, { l: "120m", s: 7200 }];
 const FORMATS = [{ v: "video", l: "Vídeo", I: VideoIcon }, { v: "audio", l: "Audio", I: HeadphonesIcon }, { v: "image", l: "Captura", I: ImageIcon }];
 const FRAMING_OPTS = [["auto", "Automático", "Sigue las caras"], ["left", "Izquierda", ""], ["center", "Centro", ""], ["right", "Derecha", ""]];
 const FRAMING_LABEL: Record<string, string> = { auto: "encuadre automático", left: "encuadre izquierda", center: "encuadre centro", right: "encuadre derecha" };
-const PLATFORM: Record<string, string> = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok" };
+const PLATFORM: Record<string, string> = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok", file: "Archivo original" };
 
-export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false }: { plan: PlanId; credits: number; trialsLeft: number; isAdmin?: boolean }) {
+export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false, fromFile = false }: { plan: PlanId; credits: number; trialsLeft: number; isAdmin?: boolean; fromFile?: boolean }) {
   // Admin: límites del plan Pro, gratis e ilimitado.
   const P = isAdmin ? PLANS.premium : PLANS[plan], router = useRouter();
   const [probe, setProbe] = useState<any>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState("");
+  useEffect(() => {
+    if (!file) { setPreview(""); return; }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
   const [mode, setMode] = useState<"manual" | "auto">("manual");
   const [count, setCount] = useState(3), [win, setWin] = useState(120);
   const [format, setFormat] = useState("video"), [aspect, setAspect] = useState("9:16"), [subStyle, setSubStyle] = useState<string | null>(null), [subSize, setSubSize] = useState("m"), [subPos, setSubPos] = useState("auto"), [subLang, setSubLang] = useState("original"), [framing, setFraming] = useState("auto");
   const [start, setStart] = useState(0), [duration, setDuration] = useState(30), [quality, setQuality] = useState(480);
   const [err, setErr] = useState(""), [busy, setBusy] = useState(false), [startAt, setStartAt] = useState("0:00");
   useEffect(() => {
+    if (fromFile) return;
     try {
       const p = JSON.parse(sessionStorage.getItem("probe") ?? "null");
       setProbe(p);
@@ -41,6 +51,24 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const picker = fromFile && <section className="card space-y-3">
+    <label className="block font-semibold" htmlFor="original">Selecciona tu vídeo original</label>
+    <p className="text-sm text-zinc-400">MP4 o MOV de hasta {ORIGINAL_MAX_MB} MB. Puedes usar una grabación del tramo que quieres recortar.</p>
+    <input id="original" type="file" accept=".mp4,.mov,.m4v,video/mp4,video/quicktime" disabled={busy}
+      onChange={e => {
+        const selected = e.target.files?.[0];
+        setProbe(null); setErr(""); setStartAt("0:00");
+        if (selected && selected.size > ORIGINAL_MAX_BYTES) setErr(`El archivo supera los ${ORIGINAL_MAX_MB} MB.`);
+        setFile(selected && selected.size <= ORIGINAL_MAX_BYTES ? selected : null);
+      }} />
+    {preview && file && <video key={preview} src={preview} controls playsInline preload="metadata" className="max-h-56 w-full bg-black"
+      onLoadedMetadata={e => {
+        const v = e.currentTarget;
+        if (!v.videoWidth || !Number.isFinite(v.duration) || v.duration < 1) { setErr("Este archivo no contiene un vídeo que se pueda recortar."); return; }
+        setProbe({ kind: "vod", platform: "file", title: file.name, duration: Math.floor(v.duration), maxHeight: v.videoHeight });
+      }} onError={() => { setProbe(null); setErr("El navegador no pudo abrir este vídeo. Prueba con un MP4 compatible."); }} />}
+  </section>;
+  if (!probe && fromFile) return <div className="space-y-3">{picker}{err && <p role="alert" className="text-red-400">{err}</p>}</div>;
   if (!probe) return (
     <div className="card flex flex-col items-center gap-3 py-12 text-center">
       <p className="text-zinc-400">Primero pega el enlace de un directo o vídeo.</p>
@@ -79,22 +107,27 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
     const body = auto
       ? { url: probe.url, kind: probe.kind, format: fmt, aspect, quality, duration: dur, count: n, window: win, subtitles: video && subs, subtitleStyle: subStyle, subtitleSize: subSize, subtitlePosition: subPos, subtitleLang: subLang, framing }
       : { url: probe.url, format: fmt, aspect, kind: probe.kind, startOffset: start, startAt: startSec, duration: dur, quality, subtitles: video && subs, subtitleStyle: subStyle, subtitleSize: subSize, subtitlePosition: subPos, subtitleLang: subLang, framing };
-    const r = await fetch(auto ? "/api/auto" : "/api/clips", { method: "POST", body: JSON.stringify(body) });
-    const j = await r.json(); setBusy(false);
-    if (!r.ok) return setErr(j.error);
-    router.push("/clips"); router.refresh();
+    try {
+      const r = await fetch(auto ? "/api/auto" : "/api/clips", file
+        ? { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-Clip-Options": JSON.stringify(body) }, body: file }
+        : { method: "POST", body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) return setErr(j.error);
+      router.push("/clips"); router.refresh();
+    } catch { setErr("Se interrumpió el envío. Revisa Mis clips antes de intentarlo de nuevo."); }
+    finally { setBusy(false); }
   };
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
       <div className="space-y-4">
         {/* Modo */}
-        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-line bg-card p-1">
+        {fromFile ? picker : <div className="grid grid-cols-2 gap-1 rounded-2xl border border-line bg-card p-1">
           <ModeBtn on={!auto} onClick={() => setMode("manual")} title="Elegir yo el momento" sub="Tú marcas dónde empieza" />
           <ModeBtn on={auto} onClick={() => setMode("auto")}
             title={ttRec ? <><LiveDot className="h-2 w-2" />Grabar directo</> : ytLive ? <><SparklesIcon className="h-4 w-4" />Analizar directo</> : <><SparklesIcon className="h-4 w-4" />Momentos destacados</>}
             sub={ttRec ? "Grabamos y sacamos los mejores clips" : ytLive ? "Lo mejor de lo ya emitido, al momento" : "Buscamos los mejores por ti"} />
-        </div>
+        </div>}
         {auto && (
           <p className="rounded-2xl border border-accent/30 bg-accent/5 p-4 text-sm text-zinc-300">
             {vod ? "Analizamos el audio del vídeo (y lo más visto en YouTube, si está disponible) para encontrar los momentos con más intensidad, y creamos clips al azar entre los mejores."
