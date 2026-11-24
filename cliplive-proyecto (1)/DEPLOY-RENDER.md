@@ -83,7 +83,9 @@ Comprueba el mismo enlace desde el otro equipo con `yt-dlp --skip-download --pri
 
 4. En `cliplive-web`, añade `YOUTUBE_WORKER_MODE=external` y despliega. Comprueba desde la web que puedes abrir un enlace de YouTube y descargar un clip generado.
 
-El worker externo usa la cola privada de Supabase y debe permanecer encendido para que funcionen los enlaces de YouTube. Para volver al procesamiento directo después de comprobar que Render tiene acceso a YouTube, detén el worker externo, quita `YOUTUBE_WORKER_MODE` de ambos servicios de Render y despliega.
+El worker externo usa la cola privada de Supabase y debe permanecer encendido para que funcionen los enlaces de YouTube. Cuando `YOUTUBE_WORKER_MODE` está vacío, los servicios de Render también pueden activar este modo con el archivo `internal/youtube-worker-external` en el bucket privado de clips. El archivo puede estar vacío y el worker de Render lo lee al arrancar.
+
+Para volver al procesamiento directo después de comprobar que Render tiene acceso a YouTube, detén el worker externo, establece `YOUTUBE_WORKER_MODE=direct` en ambos servicios de Render y despliega.
 
 ---
 
