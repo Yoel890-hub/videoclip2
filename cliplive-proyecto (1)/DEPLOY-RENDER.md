@@ -32,7 +32,7 @@ Todo lo crea el archivo `render.yaml` (en la raíz del repositorio) de una vez.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | La `sb_publishable_…` |
 | `SUPABASE_SERVICE_ROLE_KEY` | La `sb_secret_…` (en la web **y** en el worker) |
 | `ADMIN_USERS` | `Dadito23` |
-| `STRIPE_…` | Déjalas vacías hasta conectar los pagos |
+| `PAYPAL_…` | Variables del servicio `cliplive-web`. Usa `sandbox` para pruebas. [Cómo activar los cobros con PayPal](README.md#activar-los-cobros-con-paypal) |
 
 5. Pulsa **Apply / Deploy Blueprint**. La primera vez tarda unos 5-10 minutos (descarga ffmpeg, yt-dlp y los modelos de IA).
 

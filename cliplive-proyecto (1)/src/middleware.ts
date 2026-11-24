@@ -1,8 +1,11 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-// Refresca la sesión y manda a /login a quien no la tenga. El webhook de Stripe y el callback quedan públicos.
+// Los proveedores de pago envían notificaciones sin una sesión de ClipLive.
 export async function middleware(req: NextRequest) {
+  const p = req.nextUrl.pathname;
+  if (p === "/api/webhook" || p === "/api/webhook/paypal") return NextResponse.next();
+
   let res = NextResponse.next({ request: req });
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     cookies: {
@@ -17,8 +20,7 @@ export async function middleware(req: NextRequest) {
   // getClaims(): verifica la sesión aquí mismo (firma ES256) en vez de preguntar a Supabase en cada clic.
   const { data: claims } = await supabase.auth.getClaims();
   const data = { user: claims?.claims?.sub ? { id: claims.claims.sub } : null };
-  const p = req.nextUrl.pathname;
-  const open = p.startsWith("/login") || p.startsWith("/auth") || p.startsWith("/api/webhook") || p.startsWith("/bienvenida");
+  const open = p.startsWith("/login") || p.startsWith("/auth") || p.startsWith("/bienvenida");
   if (!data.user && !open) {
     if (p.startsWith("/api")) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     // La portada pública para quien llega a la raíz; el resto de páginas piden iniciar sesión.

@@ -30,18 +30,22 @@ services:
         sync: false
       - key: NEXT_PUBLIC_GOOGLE_LOGIN
         value: "false"
-      # Pagos (se pueden dejar vacíos hasta conectar Stripe/Tilopay)
-      - key: STRIPE_SECRET_KEY
+      # Cobros nuevos con PayPal Business
+      - key: PAYPAL_ENV
         sync: false
-      - key: STRIPE_WEBHOOK_SECRET
+      - key: PAYPAL_CLIENT_ID
         sync: false
-      - key: STRIPE_PRICE_STARTER
+      - key: PAYPAL_CLIENT_SECRET
         sync: false
-      - key: STRIPE_PRICE_CREATOR
+      - key: PAYPAL_WEBHOOK_ID
         sync: false
-      - key: STRIPE_PRICE_PRO
+      - key: PAYPAL_PLAN_STARTER
         sync: false
-      - key: STRIPE_PRICE_PREMIUM
+      - key: PAYPAL_PLAN_CREATOR
+        sync: false
+      - key: PAYPAL_PLAN_PRO
+        sync: false
+      - key: PAYPAL_PLAN_PREMIUM
         sync: false
 
   # ── El worker: descargas, recortes, encuadre y subtítulos (toma los trabajos de Supabase) ──

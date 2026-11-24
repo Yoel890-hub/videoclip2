@@ -1,6 +1,6 @@
 // Reglas de negocio. Precios en dólares (USD).
 // price = lo que se cobra cada `months` meses · credits = créditos que se dan en cada cobro (cada periodo).
-// Los precios reales los cobra Stripe: cada plan necesita su precio recurrente con el mismo intervalo (ver README).
+// Los planes configurados en PayPal deben cobrar el mismo precio y en el mismo intervalo.
 export type PlanId = "trial" | "starter" | "creator" | "pro" | "premium";
 export type Plan = { name: string; price: number; months: number; credits: number; maxQuality: number; maxDuration: number; rewindMin: number; concurrent: number; recordMin: number; recordClips: number };
 // recordMin / recordClips: grabación de directos de TikTok (TikTok no guarda los directos): minutos máximos y clips máximos por grabación.

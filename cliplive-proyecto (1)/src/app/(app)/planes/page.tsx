@@ -1,25 +1,26 @@
-import { requireUser, getProfile } from "@/lib/supabase";
-import { PLANS, PAID_PLANS, REFERRAL_BONUS } from "@/lib/plans";
-import PlanButton from "@/components/PlanButton";
-import PlanCard from "@/components/PlanCard";
-
-const BADGE: Record<string, string> = { creator: "El más elegido", premium: "Mejor precio" };
+import { admin, requireUser, getProfile } from "@/lib/supabase";
+import { REFERRAL_BONUS } from "@/lib/plans";
+import { paypalCheckoutOptions } from "@/lib/paypal";
+import PayPalPlans from "@/components/PayPalPlans";
 
 export default async function Planes() {
   const user = (await requireUser())!;
-  const prof = await getProfile(user.id);
+  const checkout = paypalCheckoutOptions();
+  const [prof, result] = await Promise.all([
+    getProfile(user.id),
+    checkout.clientId ? admin().from("paypal_checkouts").select("id,plan,paid_at").eq("user_id", user.id)
+      .not("subscription_id", "is", null).is("ended_at", null).order("created_at", { ascending: false }) : null,
+  ]);
+  if (result?.error) console.error("Consulta de suscripciones PayPal", result.error);
+  const subscriptions = (result?.data ?? []).map(({ id, plan, paid_at }) => ({ id, plan, paid: Boolean(paid_at) }));
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-extrabold sm:text-4xl">Mejora tu plan</h1>
-        <p className="mt-1 text-zinc-400">Precios en dólares. Cancela cuando quieras.</p>
+        <p className="mt-1 text-zinc-400">Precios en dólares con renovación automática. Paga con PayPal o con tarjeta si PayPal la ofrece para tu compra.</p>
       </div>
-      <div className="grid gap-5 pt-4 sm:grid-cols-2 xl:grid-cols-4">
-        {PAID_PLANS.map((id) => (
-          <PlanCard key={id} id={id} badge={BADGE[id]} highlight={id === "premium"}
-            action={<PlanButton plan={id} current={prof?.plan === id} />} />
-        ))}
-      </div>
+      <PayPalPlans clientId={checkout.clientId} plans={result?.error ? [] : checkout.plans}
+        current={prof?.plan} subscriptions={subscriptions} />
       <section className="card border-dashed border-accent/50">
         <h2 className="text-xl font-bold">Invita a un amigo y te damos {REFERRAL_BONUS} créditos</h2>
         <p className="mt-1 text-sm text-zinc-400">Tu código: <b className="select-all tracking-widest">{prof?.referral_code}</b></p>
