@@ -16,6 +16,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: ONNXRUNTIME_NODE_INSTALL  # Los servicios de Render usan la versión de CPU incluida en el paquete.
+        value: skip
       - key: NEXT_PUBLIC_APP_URL          # tu dominio, p. ej. https://cliplive.app
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL
@@ -60,6 +62,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: ONNXRUNTIME_NODE_INSTALL
+        value: skip
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
