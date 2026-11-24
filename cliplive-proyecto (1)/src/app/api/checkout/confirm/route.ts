@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { admin, requireUser } from "@/lib/supabase";
 import {
-  findPayPalSubscription, firstCompletedPayPalSale, paypalCheckoutId, paypalSubscription,
+  findPayPalSubscription, firstCompletedPayPalSale, PayPalError, paypalCheckoutId, paypalSubscription,
   paypalSubscriptionEnded, paypalSubscriptionId, paypalSubscriptionMatches,
 } from "@/lib/paypal";
 
@@ -28,11 +28,22 @@ export async function POST(req: Request) {
     if (checkout.ended_at) return NextResponse.json({ state: "ended" });
     if (checkout.paid_at) return NextResponse.json({ state: "paid" });
 
-    const subscriptionId = checkout.subscription_id ?? givenId
-      ?? await findPayPalSubscription(checkoutId, checkout.paypal_plan_id, checkout.created_at);
-    if (!subscriptionId) return NextResponse.json({ state: "awaiting_approval" });
+    let subscriptionId = checkout.subscription_id ?? givenId;
+    if (!subscriptionId) {
+      try {
+        subscriptionId = await findPayPalSubscription(checkoutId, checkout.paypal_plan_id, checkout.created_at);
+      } catch (error) {
+        if (!(error instanceof PayPalError) || ![400, 403, 404, 405].includes(error.status)) throw error;
+        console.warn("Búsqueda de suscripciones PayPal", error.message);
+      }
+      if (!subscriptionId) return NextResponse.json({ state: "needs_reference" });
+    }
 
-    const subscription = await paypalSubscription(subscriptionId);
+    const subscription = await paypalSubscription(subscriptionId).catch((error) => {
+      if (error instanceof PayPalError && error.status === 404 && !checkout.subscription_id) return null;
+      throw error;
+    });
+    if (!subscription) return NextResponse.json({ state: "needs_reference" });
     if (subscription.plan_id !== checkout.paypal_plan_id || !paypalSubscriptionMatches(subscription, subscriptionId, checkoutId)) {
       return NextResponse.json({ error: "PayPal no pudo vincular esta suscripción con tu compra." }, { status: 409 });
     }

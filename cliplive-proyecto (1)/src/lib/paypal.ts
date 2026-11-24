@@ -124,9 +124,7 @@ export async function findPayPalSubscription(checkoutId: string, planId: string,
   const started = Date.parse(createdAt);
   const search = new URLSearchParams({
     plan_ids: planId,
-    statuses: "ACTIVE,APPROVED,SUSPENDED,CANCELLED,EXPIRED",
-    created_after: new Date(started - 60_000).toISOString(),
-    created_before: new Date(Math.min(Date.now(), started + 10 * 60_000)).toISOString(),
+    created_after: new Date(started - 60_000).toISOString().replace(/\.\d{3}Z$/, "Z"),
     page_size: "20",
   });
   for (let page = 1; page <= 3; page++) {
