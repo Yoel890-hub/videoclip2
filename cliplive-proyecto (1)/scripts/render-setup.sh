@@ -11,6 +11,11 @@ dl() { echo "   ↓ $2"; curl -fsSL --retry 3 --retry-delay 2 -o "$2" "$1"; }
 echo "→ yt-dlp (descarga de vídeos)"
 dl "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux" bin/yt-dlp
 chmod +x bin/yt-dlp
+yt_dlp_version=$(./bin/yt-dlp --version)
+if [[ "$yt_dlp_version" < "2026.11.23" ]]; then
+  echo "La versión $yt_dlp_version de yt-dlp es anterior al arreglo del reproductor de YouTube. Reintenta la compilación." >&2
+  exit 1
+fi
 
 echo "→ Deno (yt-dlp lo necesita para YouTube)"
 dl "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip" /tmp/deno.zip
@@ -48,6 +53,6 @@ if [ "$ROLE" = "worker" ]; then
   ./bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -q " subtitles " && echo "   ✓ ffmpeg puede dibujar subtítulos (libass)"
 fi
 
-./bin/yt-dlp --version | sed 's/^/   yt-dlp /'
+echo "   yt-dlp $yt_dlp_version"
 ./bin/deno --version | head -1 | sed 's/^/   /'
 echo "✓ Instalación de ClipLive ($ROLE) terminada"

@@ -10,6 +10,7 @@ import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { probeMedia, youtubeBlocked } from "../src/lib/media-probe.mjs";
 
 const run = promisify(execFile);
 
@@ -17,6 +18,10 @@ const run = promisify(execFile);
 if (existsSync(join(process.cwd(), "bin"))) process.env.PATH = join(process.cwd(), "bin") + (process.platform === "win32" ? ";" : ":") + process.env.PATH;
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const BUCKET = process.env.STORAGE_BUCKET || "clips";
+const YOUTUBE_MODE = process.env.YOUTUBE_WORKER_MODE;
+const PLATFORMS = YOUTUBE_MODE === "external" ? ["twitch", "kick", "tiktok"]
+  : YOUTUBE_MODE === "youtube-only" ? ["youtube"] : null;
+const YOUTUBE_ERROR = "YouTube rechazó la descarga desde el servidor. Inténtalo en unos minutos.";
 const CRF = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart"];
 const CROP = { "9:16": "crop=ih*9/16:ih", "1:1": "crop=min(iw\\,ih):min(iw\\,ih)", "16:9": null };
 const MIME = { mp4: "video/mp4", mp3: "audio/mpeg", jpg: "image/jpeg" };
@@ -350,7 +355,9 @@ async function autoJob(a) {
       error: created ? null : "No te quedan créditos o pruebas para crear clips" }).eq("id", autoId);
   } catch (e) {
     console.error("auto", autoId, "falló:", e.message);
-    await db.from("auto_jobs").update({ status: "error", clips_created: created, error: a.source_kind === "vod" ? "No se pudo analizar el vídeo" : "No se pudo grabar el directo" }).eq("id", autoId);
+    const message = a.platform === "youtube" && youtubeBlocked(e) ? YOUTUBE_ERROR
+      : a.source_kind === "vod" ? "No se pudo analizar el vídeo" : "No se pudo grabar el directo";
+    await db.from("auto_jobs").update({ status: "error", clips_created: created, error: message }).eq("id", autoId);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -367,7 +374,9 @@ async function clipJob(c) {
   } catch (e) {
     console.error("clip", clipId, "falló:", e.message);
     // Devuelve créditos (o la prueba) de forma atómica y marca el error.
-    await db.rpc("refund_clip", { p_clip: clipId, p_error: c.source_kind === "vod" ? "No se pudo crear el clip" : "No se pudo capturar el directo" });
+    const message = c.platform === "youtube" && youtubeBlocked(e) ? YOUTUBE_ERROR
+      : c.source_kind === "vod" ? "No se pudo crear el clip" : "No se pudo capturar el directo";
+    await db.rpc("refund_clip", { p_clip: clipId, p_error: message });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -381,10 +390,12 @@ let active = 0, polling = false;
 
 async function claim() {
   // Primero los clips (son cortos) y después las búsquedas/grabaciones (pueden durar horas).
-  const { data: clips, error: e1 } = await db.rpc("claim_clip");
+  const { data: clips, error: e1 } = PLATFORMS
+    ? await db.rpc("claim_clip_for_platforms", { p_platforms: PLATFORMS }) : await db.rpc("claim_clip");
   if (e1) throw new Error(e1.message);
   if (clips?.length) return { kind: "clip", job: clips[0] };
-  const { data: autos, error: e2 } = await db.rpc("claim_auto_job");
+  const { data: autos, error: e2 } = PLATFORMS
+    ? await db.rpc("claim_auto_job_for_platforms", { p_platforms: PLATFORMS }) : await db.rpc("claim_auto_job");
   if (e2) throw new Error(e2.message);
   if (autos?.length) return { kind: "auto", job: autos[0] };
   return null;
@@ -413,15 +424,50 @@ async function poll() {
 // Al arrancar: lo que se quedó a medias porque el worker se apagó no se puede retomar → se cancela
 // (devolviendo créditos o la prueba) para que no quede "procesando" para siempre.
 async function recoverInterrupted() {
-  const { data: stuck } = await db.from("clips").select("id").eq("status", "processing");
+  const interrupted = db.from("clips").select("id").eq("status", "processing");
+  const { data: stuck } = await (PLATFORMS ? interrupted.in("platform", PLATFORMS) : interrupted);
   for (const c of stuck ?? []) await db.rpc("refund_clip", { p_clip: c.id, p_error: "Se interrumpió porque el servidor se reinició" });
-  const { data: autos } = await db.from("auto_jobs").update({ status: "error", error: "Se interrumpió porque el servidor se reinició. Inténtalo de nuevo." })
-    .eq("status", "analyzing").select("id");
+  const autoInterrupted = db.from("auto_jobs").update({ status: "error", error: "Se interrumpió porque el servidor se reinició. Inténtalo de nuevo." })
+    .eq("status", "analyzing");
+  if (PLATFORMS) autoInterrupted.in("platform", PLATFORMS);
+  const { data: autos } = await autoInterrupted.select("id");
   const n = (stuck?.length ?? 0) + (autos?.length ?? 0);
   if (n) console.log("Cancelados", n, "trabajos que quedaron a medias (créditos devueltos)");
 }
 
+// Las comprobaciones de enlaces tienen su propio turno para responder incluso si hay un clip largo.
+let checkingYoutube = false;
+async function pollYoutubeProbes() {
+  if (checkingYoutube) return;
+  checkingYoutube = true;
+  try {
+    const { data, error } = await db.rpc("claim_youtube_probe");
+    if (error) throw error;
+    const job = data?.[0];
+    if (!job) return;
+    const result = await probeMedia("youtube", job.source_url);
+    const { error: saveError } = await db.from("youtube_probes").update({ result }).eq("id", job.id);
+    if (saveError) throw saveError;
+  } catch (error) {
+    console.error("Cola de consultas de YouTube:", error.message);
+  } finally {
+    checkingYoutube = false;
+  }
+}
+
+if (YOUTUBE_MODE === "youtube-only") {
+  const tools = await Promise.all([
+    run("yt-dlp", ["--version"]), run("deno", ["--version"]), run("ffmpeg", ["-version"]),
+  ]);
+  console.log("Worker de YouTube:", tools.map(({ stdout }) => stdout.trim().split("\n")[0]).join(" · "));
+  const old = new Date(Date.now() - 60_000).toISOString();
+  const { error } = await db.from("youtube_probes").delete().lt("created_at", old);
+  if (error) throw new Error(`No se pudo abrir la cola de YouTube: ${error.message}`);
+  setInterval(pollYoutubeProbes, 1_500);
+  pollYoutubeProbes();
+}
 await recoverInterrupted();
 setInterval(poll, 2000);
 poll();
-console.log(`Worker de ClipLive listo · cola en Supabase · ${CONCURRENCY} trabajos a la vez`);
+const scopeLabel = PLATFORMS ? `${PLATFORMS.join(", ")} · ` : "";
+console.log(`Worker de ClipLive listo · ${scopeLabel}cola en Supabase · ${CONCURRENCY} trabajos a la vez`);

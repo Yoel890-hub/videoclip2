@@ -67,12 +67,30 @@ pero lo normal es apagarlo para que todo lo haga Render.
 ## 7. Actualizar la web en el futuro
 Cada vez que se sube un cambio a GitHub (`main`), Render vuelve a publicar la web y el worker solo.
 
+## Si YouTube bloquea las consultas desde Render
+
+Comprueba el mismo enlace desde el otro equipo con `yt-dlp --skip-download --print duration URL`. Instala `yt-dlp` 2026.11.23 o más reciente, Deno y FFmpeg. Usa una conexión desde la que YouTube permita consultar y descargar el video.
+
+1. Aplica [`0015_youtube_worker.sql`](supabase/migrations/0015_youtube_worker.sql) en el SQL Editor del proyecto de ClipLive.
+2. En `cliplive-worker`, añade `YOUTUBE_WORKER_MODE=external` y espera a que Render despliegue el cambio. Ese servicio procesará Twitch, Kick y TikTok.
+3. En el otro equipo, guarda en `.env.local` las variables de Supabase del mismo proyecto. Arranca el worker desde la carpeta de ClipLive y espera a que el log indique `Worker de ClipLive listo · youtube`.
+
+   ```powershell
+   $env:YOUTUBE_WORKER_MODE = 'youtube-only'
+   $env:WORKER_CONCURRENCY = '1'
+   npm.cmd run worker
+   ```
+
+4. En `cliplive-web`, añade `YOUTUBE_WORKER_MODE=external` y despliega. Comprueba desde la web que puedes abrir un enlace de YouTube y descargar un clip generado.
+
+El worker externo usa la cola privada de Supabase y debe permanecer encendido para que funcionen los enlaces de YouTube. Para volver al procesamiento directo después de comprobar que Render tiene acceso a YouTube, detén el worker externo, quita `YOUTUBE_WORKER_MODE` de ambos servicios de Render y despliega.
+
 ---
 
 ### Cosas a tener en cuenta
 - **Velocidad del worker:** el plan Standard tiene 1 CPU, así que los clips con subtítulos y encuadre automático tardan más que en tu PC.
   Si se queda corto, sube el worker al plan **Pro** en Render y cambia `WORKER_CONCURRENCY` a `2`.
-- **YouTube y TikTok** bloquean más las descargas desde servidores que desde casa. Si ves muchos errores de descarga en los registros del worker, avísame.
+- **TikTok** puede limitar las descargas desde servidores en la nube. Revisa los registros de `cliplive-worker` si falla una captura.
 - **Almacenamiento:** el plan gratis de Supabase guarda 1 GB de clips. Con usuarios reales hará falta Supabase Pro ($25/mes, 100 GB).
 - **Fuentes de los subtítulos:** en Render (Linux) se usan equivalentes gratuitas de las de Windows
   (Archivo Black ≈ Arial Black, Anton ≈ Impact, Gelasio ≈ Georgia, Courier Prime ≈ Courier New, Arimo ≈ Arial). Se ven casi iguales.
