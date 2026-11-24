@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { paypalCheckoutId, paypalConfig, paypalRequest, paypalSubscription, paypalSubscriptionEnded, paypalSubscriptionId } from "@/lib/paypal";
+import {
+  paypalCheckoutId, paypalConfig, paypalRequest, paypalSubscription, paypalSubscriptionEnded,
+  paypalSubscriptionId, paypalSubscriptionMatches, paypalUsdAmount,
+} from "@/lib/paypal";
 import { admin } from "@/lib/supabase";
 
 const EVENTS = new Set([
@@ -47,14 +50,13 @@ export async function POST(req: Request) {
     const subscription = await paypalSubscription(subscriptionId);
     const checkoutId = subscription.custom_id;
     if (!checkoutId || !paypalCheckoutId.test(checkoutId)) return NextResponse.json({ received: true });
-    if (subscription.id !== subscriptionId || subscription.plan_overridden || Number(subscription.quantity ?? 1) !== 1
-      || Number(subscription.shipping_amount?.value ?? 0) !== 0) {
+    if (!paypalSubscriptionMatches(subscription, subscriptionId, checkoutId)) {
       throw new Error(`Condiciones inesperadas de la suscripción ${subscriptionId}`);
     }
 
     const amount = resource.amount?.total;
     if (sale && (typeof resource.id !== "string" || !resource.id || resource.amount?.currency !== "USD"
-      || typeof amount !== "string" || !/^\d{1,10}(\.\d{1,2})?$/.test(amount))) {
+      || typeof amount !== "string" || !paypalUsdAmount.test(amount))) {
       throw new Error(`Importe o identificador inesperado en la venta ${event.id}`);
     }
     const ended = paypalSubscriptionEnded(subscription.status)

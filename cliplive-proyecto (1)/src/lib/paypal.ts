@@ -8,7 +8,8 @@ const PLAN_IDS: Partial<Record<PlanId, string>> = {
 };
 
 export const paypalCheckoutId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const paypalSubscriptionId = /^I-[A-Z0-9]+$/i;
+export const paypalSubscriptionId = /^I-[A-Z0-9]{1,48}$/i;
+export const paypalUsdAmount = /^\d{1,10}(\.\d{1,2})?$/;
 
 export function paypalConfig() {
   const { PAYPAL_CLIENT_ID: clientId, PAYPAL_CLIENT_SECRET: secret, PAYPAL_WEBHOOK_ID: webhookId,
@@ -111,3 +112,52 @@ type Subscription = {
 
 export const paypalSubscription = (id: string) => paypalRequest<Subscription>(`/v1/billing/subscriptions/${id}`);
 export const paypalSubscriptionEnded = (status: string) => status === "CANCELLED" || status === "EXPIRED";
+
+export function paypalSubscriptionMatches(subscription: Subscription, id: string, checkoutId: string) {
+  return subscription.id === id && subscription.custom_id === checkoutId
+    && !subscription.plan_overridden && Number(subscription.quantity ?? 1) === 1
+    && Number(subscription.shipping_amount?.value ?? 0) === 0;
+}
+
+// Recupera intentos anteriores cuyo navegador cerró PayPal sin entregar el ID de suscripción.
+export async function findPayPalSubscription(checkoutId: string, planId: string, createdAt: string) {
+  const started = Date.parse(createdAt);
+  const search = new URLSearchParams({
+    plan_ids: planId,
+    statuses: "ACTIVE,APPROVED,SUSPENDED,CANCELLED,EXPIRED",
+    created_after: new Date(started - 60_000).toISOString(),
+    created_before: new Date(Math.min(Date.now(), started + 10 * 60_000)).toISOString(),
+    page_size: "20",
+  });
+  for (let page = 1; page <= 3; page++) {
+    search.set("page", String(page));
+    const result = await paypalRequest<{ subscriptions?: Subscription[]; links?: { rel: string }[] }>(`/v1/billing/subscriptions?${search}`);
+    const match = result.subscriptions?.find((item) => item.custom_id === checkoutId && paypalSubscriptionId.test(item.id));
+    if (match) return match.id;
+    if (!result.links?.some(({ rel }) => rel === "next")) break;
+  }
+  return null;
+}
+
+type SubscriptionTransaction = {
+  id: string;
+  status: string;
+  amount_with_breakdown?: { gross_amount?: Money };
+};
+
+export async function firstCompletedPayPalSale(subscriptionId: string, createdAt: string, price: number) {
+  const now = Date.now();
+  const start = Math.max(Date.parse(createdAt) - 60_000, now - 30 * 24 * 60 * 60_000);
+  const search = new URLSearchParams({ start_time: new Date(start).toISOString(), end_time: new Date(now).toISOString() });
+  const { transactions } = await paypalRequest<{ transactions?: SubscriptionTransaction[] }>(
+    `/v1/billing/subscriptions/${subscriptionId}/transactions?${search}`,
+  );
+  for (const transaction of transactions ?? []) {
+    const amount = transaction.amount_with_breakdown?.gross_amount;
+    if (transaction.status === "COMPLETED" && typeof transaction.id === "string" && transaction.id.length > 0
+      && amount?.currency_code === "USD" && paypalUsdAmount.test(amount.value) && Number(amount.value) === price) {
+      return { id: transaction.id, amount: amount.value };
+    }
+  }
+  return null;
+}

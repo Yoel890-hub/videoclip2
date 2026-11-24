@@ -18,7 +18,7 @@ type PayPalSdk = {
     createSubscription: (_data: unknown, actions: {
       subscription: { create: (details: { plan_id: string; custom_id: string; application_context: { shipping_preference: "NO_SHIPPING" } }) => Promise<string> };
     }) => Promise<string>;
-    onApprove: () => void;
+    onApprove: (data: { subscriptionID?: string }) => void;
     onCancel: () => Promise<void>;
     onError: () => void;
   }) => PayPalButtons;
@@ -26,8 +26,15 @@ type PayPalSdk = {
 
 const BADGE: Partial<Record<PlanId, string>> = { creator: "El más elegido", premium: "Mejor precio" };
 const LOAD_ERROR = "No pudimos cargar PayPal. Actualiza la página para volver a intentarlo.";
+type CheckoutReference = { checkoutId: string; subscriptionId?: string };
+const PAYMENT_MESSAGES: Record<string, string> = {
+  paid: "PayPal confirmó el cobro. Acreditamos los créditos de tu plan.",
+  pending: "PayPal registró la suscripción. El cobro todavía está pendiente de confirmación.",
+  awaiting_approval: "PayPal todavía no confirma la aprobación de este intento.",
+  ended: "Esta suscripción ya terminó.",
+};
 
-function PlanButton({ plan, onApproved }: { plan: PlanId; onApproved: () => void }) {
+function PlanButton({ plan, onApproved }: { plan: PlanId; onApproved: (checkout: CheckoutReference) => void }) {
   const host = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
 
@@ -57,7 +64,9 @@ function PlanButton({ plan, onApproved }: { plan: PlanId; onApproved: () => void
         return actions.subscription.create({ plan_id: result.planId, custom_id: result.checkoutId,
           application_context: { shipping_preference: "NO_SHIPPING" } });
       },
-      onApprove: onApproved,
+      onApprove({ subscriptionID }) {
+        if (!disposed && checkoutId) onApproved({ checkoutId, subscriptionId: subscriptionID });
+      },
       async onCancel() {
         if (disposed) return;
         setMessage("Cerraste el pago en PayPal.");
@@ -88,34 +97,67 @@ function PlanButton({ plan, onApproved }: { plan: PlanId; onApproved: () => void
   return <><div ref={host} />{message && <p role="status" className="mt-2 text-sm text-zinc-300">{message}</p>}</>;
 }
 
-export default function PayPalPlans({ clientId, plans, current, subscriptions }: {
+export default function PayPalPlans({ clientId, plans, current, subscriptions, recentCheckoutId }: {
   clientId?: string;
   plans: PlanId[];
   current?: PlanId;
   subscriptions: { id: string; plan: PlanId; paid: boolean }[];
+  recentCheckoutId?: string;
 }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [waiting, setWaiting] = useState(false);
+  const [approval, setApproval] = useState<CheckoutReference | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [paymentState, setPaymentState] = useState("");
+  const [paymentMessage, setPaymentMessage] = useState("");
+  const verificationBusy = useRef(false);
   const [cancelling, setCancelling] = useState<string>();
   const [cancelError, setCancelError] = useState("");
-  const pending = waiting || subscriptions.some((subscription) => !subscription.paid);
+  const pendingId = approval?.checkoutId ?? subscriptions.find((subscription) => !subscription.paid)?.id;
+  const approvedSubscriptionId = approval?.subscriptionId;
   const paid = subscriptions.some((subscription) => subscription.paid);
-  const canBuy = !waiting && subscriptions.length === 0;
+  const canBuy = !pendingId && subscriptions.length === 0;
+  const targetId = pendingId ?? recentCheckoutId;
 
-  const onApproved = useCallback(() => {
-    setWaiting(true);
-    router.refresh();
+  const verifyPayment = useCallback(async (checkout: CheckoutReference) => {
+    if (verificationBusy.current) return;
+    verificationBusy.current = true;
+    setChecking(true);
+    try {
+      const response = await fetch("/api/checkout/confirm", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(checkout),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.state) throw new Error(result?.error ?? "No pudimos verificar el pago.");
+      setPaymentState(result.state);
+      setPaymentMessage(PAYMENT_MESSAGES[result.state] ?? "PayPal sigue verificando este intento.");
+      if (result.state === "ended") setApproval(null);
+      router.refresh();
+    } catch (error) {
+      setPaymentMessage(error instanceof Error ? error.message : "No pudimos verificar el pago.");
+    } finally {
+      verificationBusy.current = false;
+      setChecking(false);
+    }
   }, [router]);
 
+  const onApproved = useCallback((checkout: CheckoutReference) => {
+    setPaymentState("");
+    setPaymentMessage("");
+    setApproval(checkout);
+  }, []);
+
   useEffect(() => {
-    if (paid) { setWaiting(false); return; }
-    if (!pending) return;
-    const timer = setInterval(() => router.refresh(), 2_000);
+    if (paid) { setApproval(null); return; }
+    if (!targetId) return;
+    const checkout = { checkoutId: targetId, subscriptionId: approvedSubscriptionId };
+    void verifyPayment(checkout);
+    if (!pendingId) return;
+    const timer = setInterval(() => void verifyPayment(checkout), 6_000);
     const stop = setTimeout(() => clearInterval(timer), 30_000);
     return () => { clearInterval(timer); clearTimeout(stop); };
-  }, [paid, pending, router]);
+  }, [paid, pendingId, targetId, approvedSubscriptionId, verifyPayment]);
 
   async function cancelSubscription(id: string) {
     if (!window.confirm("¿Cancelar la suscripción? Se detendrán los cobros y se desactivará este plan de inmediato.")) return;
@@ -126,7 +168,8 @@ export default function PayPalPlans({ clientId, plans, current, subscriptions }:
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checkoutId: id }),
       });
       if (!response.ok) throw new Error("PayPal no confirmó la cancelación");
-      setWaiting(false);
+      setApproval(null);
+      setPaymentMessage("");
       router.refresh();
     } catch {
       setCancelError("No pudimos confirmar la cancelación. Actualiza la página e inténtalo de nuevo.");
@@ -143,10 +186,17 @@ export default function PayPalPlans({ clientId, plans, current, subscriptions }:
     <>
       {sdkUrl && plans.length > 0 && canBuy && <Script src={sdkUrl} onReady={() => setReady(true)} onError={() => setFailed(true)} />}
       {canBuy && (!plans.length || failed) && <p role="status" className="text-sm text-zinc-300">{failed ? LOAD_ERROR : "Los pagos aún no están disponibles."}</p>}
-      {pending && !paid && (
+      {paymentMessage && paid && <p role="status" className="text-sm text-zinc-300">{paymentMessage}</p>}
+      {targetId && !paid && (
         <div className="card flex flex-wrap items-center gap-4" role="status">
-          <p>Estamos esperando la confirmación del cobro de PayPal.</p>
-          <button type="button" className="btn-ghost" onClick={() => router.refresh()}>Actualizar estado</button>
+          <p>{paymentMessage || (pendingId ? "Estamos comprobando el cobro con PayPal." : "¿Ya aprobaste el pago en PayPal?")}</p>
+          <button type="button" className="btn-ghost" disabled={checking}
+            onClick={() => void verifyPayment({ checkoutId: targetId, subscriptionId: approvedSubscriptionId })}>
+            {checking ? "Verificando…" : "Verificar pago"}
+          </button>
+          {approval && subscriptions.length === 0 && paymentState === "awaiting_approval" && (
+            <button type="button" className="btn-ghost" onClick={() => setApproval(null)}>Volver a los planes</button>
+          )}
         </div>
       )}
       {subscriptions.map(({ id, plan }) => (
@@ -164,7 +214,7 @@ export default function PayPalPlans({ clientId, plans, current, subscriptions }:
             action={canBuy && current !== id && plans.includes(id) && ready && !failed
               ? <PlanButton plan={id} onApproved={onApproved} />
               : <button type="button" className="btn-primary w-full" disabled>{current === id ? "Plan actual"
-                : !canBuy || !plans.includes(id) || failed ? "No disponible" : "Cargando PayPal…"}</button>}
+                : pendingId ? "Pago por confirmar" : !canBuy || !plans.includes(id) || failed ? "No disponible" : "Cargando PayPal…"}</button>}
           />
         ))}
       </div>
