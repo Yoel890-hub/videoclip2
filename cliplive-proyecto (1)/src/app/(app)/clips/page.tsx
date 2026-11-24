@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { admin, requireUser } from "@/lib/supabase";
 import ClipCard from "@/components/ClipCard";
+import YouTubeClipLink from "@/components/YouTubeClipLink";
 import AutoRefresh from "@/components/AutoRefresh";
 import { AlertIcon, FilmIcon, LiveDot, SparklesIcon } from "@/components/Icons";
 export const dynamic = "force-dynamic";
@@ -67,7 +68,10 @@ export default async function Clips() {
           </article>
         );
       })}
-      {lastErr && <p className="flex items-center gap-2 rounded-2xl border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-300"><AlertIcon className="h-4 w-4" />Momentos destacados: {lastErr.error}</p>}
+      {lastErr && <div className="space-y-2 rounded-2xl border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-300">
+        <p className="flex items-center gap-2"><AlertIcon className="h-4 w-4" />Momentos destacados: {lastErr.error}</p>
+        {lastErr.platform === "youtube" && <YouTubeClipLink url={lastErr.source_url} />}
+      </div>}
 
       {data?.length ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

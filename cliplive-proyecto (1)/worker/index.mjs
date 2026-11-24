@@ -11,7 +11,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { probeMedia, youtubeBlocked } from "../src/lib/media-probe.mjs";
-import { youtubeWorkerMode } from "../src/lib/youtube-worker-mode.mjs";
 
 const run = promisify(execFile);
 
@@ -19,7 +18,7 @@ const run = promisify(execFile);
 if (existsSync(join(process.cwd(), "bin"))) process.env.PATH = join(process.cwd(), "bin") + (process.platform === "win32" ? ";" : ":") + process.env.PATH;
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const BUCKET = process.env.STORAGE_BUCKET || "clips";
-const YOUTUBE_MODE = await youtubeWorkerMode(db);
+const YOUTUBE_MODE = process.env.YOUTUBE_WORKER_MODE || "direct";
 const PLATFORMS = YOUTUBE_MODE === "external" ? ["twitch", "kick", "tiktok"]
   : YOUTUBE_MODE === "youtube-only" ? ["youtube"] : null;
 const YOUTUBE_ERROR = "YouTube rechazó la descarga desde el servidor. Inténtalo en unos minutos.";

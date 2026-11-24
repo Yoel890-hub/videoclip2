@@ -5,7 +5,7 @@ const run = promisify(execFile);
 const NAMES = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok" };
 
 export function youtubeBlocked(error) {
-  return /confirm you.?re not a bot|sign in to confirm/i.test(String(error?.stderr || error?.message || ""));
+  return /confirm (?:that )?you(?:['’]re| are) not a bot/i.test(String(error?.stderr || error?.message || ""));
 }
 
 async function youtubeDvrSeconds(info) {
@@ -48,7 +48,7 @@ export async function probeMedia(platform, url) {
     const message = String(error?.stderr || error?.message || "");
     console.error("probe", platform, message.trim().split("\n").filter(Boolean).slice(-2).join(" | ").slice(0, 400));
     if (platform === "youtube" && youtubeBlocked(error)) {
-      return { status: 503, body: { error: "YouTube está rechazando las consultas desde el servidor. Inténtalo más tarde." } };
+      return { status: 503, body: { error: "YouTube pidió verificar que la consulta viene de una persona. ClipLive no pudo abrir el vídeo.", code: "YOUTUBE_VERIFICATION" } };
     }
     if (/not currently live|is offline|not live/i.test(message)) {
       return { status: 422, body: { error: "Ese directo no está en emisión ahora mismo." } };
@@ -56,7 +56,7 @@ export async function probeMedia(platform, url) {
     if (platform === "tiktok" && /403|forbidden/i.test(message)) {
       return { status: 422, body: { error: "TikTok ha bloqueado la descarga automática de este vídeo. Prueba de nuevo en unos minutos o usa otro enlace." } };
     }
-    if (/private|login|sign in|age/i.test(message)) {
+    if (/private|login|sign in|age[- ]restricted|confirm your age/i.test(message)) {
       return { status: 422, body: { error: "Ese vídeo es privado o necesita iniciar sesión, y no se puede descargar." } };
     }
     return { status: 502, body: { error: "No se pudo comprobar el enlace. Revisa que sea correcto e inténtalo de nuevo." } };

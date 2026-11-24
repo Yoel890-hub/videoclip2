@@ -5,7 +5,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { detectPlatform, isShortLink, resolveShortLink } from "@/lib/platforms";
 import { probeMedia } from "@/lib/media-probe.mjs";
 import { admin, requireUser } from "@/lib/supabase";
-import { youtubeWorkerMode } from "@/lib/youtube-worker-mode.mjs";
 
 const bin = join(process.cwd(), "bin");
 if (existsSync(bin) && !process.env.PATH?.split(delimiter).includes(bin)) {
@@ -62,7 +61,7 @@ export async function POST(req: Request) {
       target = { ...target, url: profile.toString() };
     }
   }
-  if (target.platform === "youtube" && await youtubeWorkerMode(admin()) === "external") {
+  if (target.platform === "youtube" && process.env.YOUTUBE_WORKER_MODE === "external") {
     return probeOnWorker(user.id, target.url, req.signal);
   }
   const result = await probeMedia(target.platform, target.url);

@@ -1,6 +1,7 @@
 import { AlertIcon, CaptionsIcon, DownloadIcon, HeadphonesIcon, SparklesIcon } from "@/components/Icons";
 import ClipActions from "@/components/ClipActions";
 import ClipMedia from "@/components/ClipMedia";
+import YouTubeClipLink from "@/components/YouTubeClipLink";
 
 const FMT: Record<string, string> = { video: "Vídeo", audio: "Audio MP3", image: "Captura" };
 const PLATFORM: Record<string, string> = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok" };
@@ -65,6 +66,7 @@ export default function ClipCard({ c }: { c: any }) {
           {c.source_kind === "vod" && c.start_at_s != null && <span className="badge normal-case">desde {clock(c.start_at_s)}</span>}
         </div>
         <ClipActions id={c.id} title={c.title ?? c.source_url} canDelete={!working} />
+        {c.status === "error" && c.platform === "youtube" && <YouTubeClipLink url={c.source_url} />}
         {ready && (
           <div className="mt-auto space-y-2">
             <a className="btn-primary w-full" href={`/api/clips/${c.id}/download`}><DownloadIcon />Descargar{c.size_bytes ? ` · ${(c.size_bytes / 1048576).toFixed(1)} MB` : ""}</a>
