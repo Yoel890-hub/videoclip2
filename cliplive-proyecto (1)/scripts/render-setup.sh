@@ -47,8 +47,20 @@ if [ "$ROLE" = "worker" ]; then
   ./bin/ffmpeg -hide_banner -version | head -1
   if ./bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -q " whisper "; then
     echo "   ✓ ffmpeg incluye Whisper: los subtítulos funcionarán"
+  elif [ -x bin/whisper-cli ] && ./bin/whisper-cli --help >/dev/null 2>&1; then
+    echo "   ✓ ffmpeg sin Whisper, pero whisper-cli ya está instalado: los subtítulos funcionarán"
+  elif command -v cmake >/dev/null && command -v c++ >/dev/null; then
+    echo "→ ffmpeg sin Whisper: compilando whisper-cli (whisper.cpp), tarda unos minutos"
+    rm -rf /tmp/whisper.cpp
+    git clone -q --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
+    cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+      -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_SDL2=OFF -DGGML_NATIVE=OFF >/dev/null
+    cmake --build /tmp/whisper.cpp/build -j"$(nproc)" --target whisper-cli >/dev/null
+    cp /tmp/whisper.cpp/build/bin/whisper-cli bin/ && chmod +x bin/whisper-cli
+    rm -rf /tmp/whisper.cpp
+    echo "   ✓ whisper-cli listo: los subtítulos funcionarán"
   else
-    echo "   ⚠ AVISO: este ffmpeg NO incluye Whisper → los clips se crearán SIN subtítulos (ver DEPLOY-RENDER.md)"
+    echo "   ⚠ AVISO: este ffmpeg NO incluye Whisper y no hay cmake para compilar whisper-cli → clips SIN subtítulos"
   fi
   ./bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -q " subtitles " && echo "   ✓ ffmpeg puede dibujar subtítulos (libass)"
 fi

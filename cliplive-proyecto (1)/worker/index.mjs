@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { probeMedia, youtubeBlocked } from "../src/lib/media-probe.mjs";
@@ -129,12 +129,38 @@ const filterPath = (p) => `'${p.replace(/\\/g, "/").replace(/:/g, "\\:")}'`;   /
 // Transcribe [ss, ss+len) de `input` palabra por palabra → [{ start, end, text }] en ms (vacío si no hay voz).
 async function transcribeWords(dir, input, ss, len, lang = "original") {
   if (!existsSync(WHISPER_MODEL)) { console.warn("Sin modelo de Whisper en", WHISPER_MODEL, "→ clip sin subtítulos"); return []; }
+  if (!(await ffmpegHasWhisper())) return transcribeWithCli(dir, input, ss, len, lang);
   const file = join(dir, "words.json");
   await rm(file, { force: true });
   await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...(ss ? ["-ss", String(ss)] : []), "-i", input, "-t", String(len), "-vn",
     "-af", `aresample=16000,whisper=model=${filterPath(WHISPER_MODEL)}:language=auto:queue=10:destination=words.json:format=json:max_len=1${lang === "en" ? ":translate=1" : ""}`,
     "-f", "null", "-"], { cwd: dir, timeout: 1_200_000, maxBuffer: 50_000_000 });
   return existsSync(file) ? parseWhisperWords(await readFile(file, "utf8")) : [];
+}
+
+// Algunos ffmpeg para Linux no traen el filtro whisper: entonces se usa el programa whisper-cli (whisper.cpp).
+let whisperFilter;
+function ffmpegHasWhisper() {
+  whisperFilter ??= run("ffmpeg", ["-hide_banner", "-filters"], { maxBuffer: 10_000_000 })
+    .then(({ stdout }) => / whisper /.test(stdout)).catch(() => false);
+  return whisperFilter;
+}
+
+async function transcribeWithCli(dir, input, ss, len, lang) {
+  const wav = join(dir, "voz.wav"), base = join(dir, "voz");
+  await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...(ss ? ["-ss", String(ss)] : []), "-i", input, "-t", String(len), "-vn",
+    "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav], { timeout: 600_000 });
+  try {
+    await run(process.env.WHISPER_CLI || "whisper-cli", ["-m", WHISPER_MODEL, "-f", wav, "-l", "auto", "-ml", "1", "-sow", "-oj", "-of", base, "-np",
+      "-t", String(Math.min(8, availableParallelism())), ...(lang === "en" ? ["-tr"] : [])],
+      { timeout: 1_200_000, maxBuffer: 50_000_000 });
+  } catch (e) {
+    console.warn(e.code === "ENOENT" ? "Ni ffmpeg con Whisper ni whisper-cli → clip sin subtítulos" : `whisper-cli falló: ${e.message}`);
+    return [];
+  }
+  const out = JSON.parse(await readFile(`${base}.json`, "utf8"));
+  return (out.transcription ?? []).map((s) => ({ start: s.offsets?.from, end: s.offsets?.to, text: String(s.text ?? "").trim() }))
+    .filter((w) => w.text && !/^\[.*\]$/.test(w.text) && Number.isFinite(w.start) && Number.isFinite(w.end));
 }
 
 // Filtro de recorte según el encuadre (auto = cámara que sigue y alterna caras; left/center/right fijo),

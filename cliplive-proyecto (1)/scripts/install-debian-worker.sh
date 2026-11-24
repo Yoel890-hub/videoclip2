@@ -22,7 +22,7 @@ echo "Carpeta: $DIR"
 
 echo "→ 1/5 Paquetes del sistema"
 sudo apt-get update -qq
-sudo apt-get install -y -qq curl git xz-utils unzip ca-certificates python3 >/dev/null
+sudo apt-get install -y -qq curl git xz-utils unzip ca-certificates python3 build-essential cmake >/dev/null
 
 echo "→ 2/5 Node.js 22"
 if [ ! -x "$NODE_DIR/bin/node" ]; then

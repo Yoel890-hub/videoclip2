@@ -10,6 +10,8 @@ export ONNXRUNTIME_NODE_INSTALL=skip  # sin binarios de NVIDIA (CUDA): basta la 
 export NODE_OPTIONS=--dns-result-order=ipv4first
 echo "→ Bajando cambios de GitHub"
 git -C .. pull --ff-only
+echo "→ Herramientas para compilar whisper-cli"
+sudo apt-get install -y -qq build-essential cmake >/dev/null
 echo "→ Dependencias"
 npm ci --no-audit --no-fund --loglevel=http --fetch-timeout=60000 --fetch-retries=5
 echo "→ Programas (yt-dlp, ffmpeg, modelos…)"
