@@ -33,6 +33,8 @@ if [ ! -x "$NODE_DIR/bin/node" ]; then
   tar -xJf /tmp/node.tar.xz -C "$NODE_DIR" --strip-components=1
 fi
 export PATH="$NODE_DIR/bin:$PATH"
+# onnxruntime-node intenta bajar los binarios de NVIDIA (CUDA); no hacen falta: la versión de CPU ya viene incluida.
+export ONNXRUNTIME_NODE_INSTALL=skip
 echo "   node $(node -v) · npm $(npm -v)"
 
 echo "→ 3/5 Dependencias y programas (yt-dlp, Deno, ffmpeg, modelos, fuentes)"

@@ -5,6 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/node/bin:$PATH"
+export ONNXRUNTIME_NODE_INSTALL=skip  # sin binarios de NVIDIA (CUDA): basta la versión de CPU
 echo "→ Bajando cambios de GitHub"
 git -C .. pull --ff-only
 echo "→ Dependencias"
