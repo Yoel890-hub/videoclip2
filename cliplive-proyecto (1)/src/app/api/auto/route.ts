@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   const quality = QUALITIES.includes(b.quality) ? b.quality : 480;
   const duration = Math.max(5, Math.floor(+b.duration || 30));
   // Directo de TikTok: no se guarda, así que se graba (hasta 3 h según el plan) y salen más clips.
-  const tiktokRec = kind === "live" && target.platform === "tiktok";
+  const tiktokRec = kind === "live" && (target.platform === "tiktok" || target.platform === "youtube");
   const wantCount = Math.max(1, Math.floor(+b.count || 3));
 
   const db = admin();

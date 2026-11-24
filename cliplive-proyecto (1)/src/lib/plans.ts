@@ -39,6 +39,8 @@ export const recordWindowsFor = (p: Plan) => RECORD_WINDOWS.filter((w) => w <= p
 export const suggestedClips = (windowS: number, max: number) => Math.max(1, Math.min(max, Math.round(windowS / 300)));
 // ¿Este enlace es un directo de TikTok? (se graba en vez de retroceder, porque TikTok no guarda los directos)
 export const isTikTokLive = (probe: { platform?: string; kind?: string }) => probe.platform === "tiktok" && probe.kind === "live";
+// ¿Directo de YouTube? (guarda ~1 h hacia atrás: los momentos destacados se buscan en lo ya emitido, al momento)
+export const isYoutubeLive = (probe: { platform?: string; kind?: string }) => probe.platform === "youtube" && probe.kind === "live";
 
 // Encuadre del recorte vertical/cuadrado.
 export const FRAMINGS = ["auto", "left", "center", "right"];

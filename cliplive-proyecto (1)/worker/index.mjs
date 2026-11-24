@@ -71,6 +71,35 @@ function autoProgressFor(autoId) {
   };
 }
 
+// ── Directos de YouTube: el historial (DVR) se lee de la lista HLS del directo ──
+// yt-dlp no puede cortar un trozo del pasado de un directo de YouTube ("This format cannot be partially
+// downloaded"), pero la lista HLS guarda ~1 h hacia atrás: ffmpeg -live_start_index empieza N segmentos antes.
+async function youtubeHls(info, maxHeight = 1080) {
+  const m3u8 = (info.formats ?? []).filter((x) => String(x.protocol).startsWith("m3u8"));
+  const video = m3u8.filter((x) => x.height && x.height <= maxHeight).sort((a, b) => b.height - a.height)[0]
+    ?? m3u8.filter((x) => x.height).sort((a, b) => a.height - b.height)[0];
+  const audio = m3u8.filter((x) => !x.height && x.acodec !== "none")[0];
+  if (!video) throw new Error("El directo no tiene lista HLS");
+  const pl = await (await fetch(video.url, { signal: AbortSignal.timeout(15_000) })).text();
+  const durs = [...pl.matchAll(/#EXTINF:([\d.]+)/g)].map((m) => Number(m[1]));
+  return { video, audio, seg: durs[0] || 5, total: durs.reduce((x, y) => x + y, 0) };
+}
+// Descarga desde (ahora - back) durante len segundos. untilNow: solo hasta el momento actual (para analizar).
+async function grabYoutubePast(info, { back, len, untilNow = false, audioOnly = false, maxHeight = 480, out, onPct = () => {} }) {
+  const h = await youtubeHls(info, maxHeight);
+  const b = Math.max(h.seg, Math.min(back, h.total - h.seg));          // no más atrás de lo que guarda YouTube
+  const L = untilNow ? b : len;
+  const idx = String(-Math.ceil(b / h.seg));
+  const inputs = audioOnly
+    ? ["-live_start_index", idx, "-i", (h.audio ?? h.video).url, "-vn"]
+    : h.audio
+      ? ["-live_start_index", idx, "-i", h.video.url, "-live_start_index", idx, "-i", h.audio.url, "-map", "0:v", "-map", "1:a"]
+      : ["-live_start_index", idx, "-i", h.video.url];
+  await ffmpegProgress(["-y", "-hide_banner", "-loglevel", "error", ...inputs, "-t", String(L), "-c", "copy", out],
+    { len: L, onPct, timeout: Math.max(600_000, L * 1000) });
+  return { back: b, len: L };
+}
+
 // ffmpeg con porcentaje real (lee -progress).
 function ffmpegProgress(args, { cwd, len, onPct, timeout = 900_000 }) {
   return new Promise((resolve, reject) => {
@@ -197,8 +226,16 @@ async function capture(c, dir, prog = noop) {
   const fmt = c.format === "audio"
     ? ["-f", "ba/b", "-x", "--audio-format", "mp3"]
     : ["-f", `bv*[height<=${c.quality}]+ba/b[height<=${c.quality}]`, "--merge-output-format", "mp4"];
+  if (c.platform === "youtube" && c.start_offset_s > 0) {
+    // YouTube: retroceder con la lista HLS (rápido: 10 min del pasado se bajan en ~30 s).
+    const { stdout: js } = await run("yt-dlp", ["-J", "--no-warnings", "--no-playlist", "--skip-download", c.source_url], { timeout: 60_000, maxBuffer: 50_000_000 });
+    const audioOnly = c.format === "audio";
+    await prog(5, "Descargando del directo");
+    await grabYoutubePast(JSON.parse(js), { back: c.start_offset_s, len: c.duration_s, audioOnly, maxHeight: c.quality ?? 480,
+      out: join(dir, audioOnly ? "raw.m4a" : "raw.mp4"), onPct: (k) => prog(5 + 43 * k, "Descargando del directo") });
+  } else {
   // start_offset_s = 0 → grabar en vivo desde ahora durante duration_s.
-  // start_offset_s > 0 → retroceder usando el DVR del directo (--live-from-start; solo plataformas que lo permiten).
+  // start_offset_s > 0 → retroceder usando el DVR del directo (--live-from-start; Twitch, Kick…).
   const range = c.start_offset_s > 0
     ? ["--live-from-start", "--download-sections", `*-${c.start_offset_s}-${c.start_offset_s - c.duration_s > 0 ? `-${c.start_offset_s - c.duration_s}` : "inf"}`]
     : ["--downloader", "ffmpeg", "--downloader-args", `ffmpeg:-t ${c.duration_s}`];
@@ -209,6 +246,7 @@ async function capture(c, dir, prog = noop) {
   try {
     await run("yt-dlp", [...base, ...fmt, ...range, c.source_url], { timeout: (c.duration_s + 240) * 1000, maxBuffer: 50_000_000 });
   } finally { stopLive(); }
+  }
   const raw = (await readdir(dir)).find((f) => f.startsWith("raw."));
   if (!raw) throw new Error("No se generó ningún archivo");
   if (c.format === "audio") { await run("ffmpeg", ["-y", "-i", join(dir, raw), "-t", String(c.duration_s), join(dir, "final.mp3")]); return "mp3"; }
@@ -267,7 +305,17 @@ async function autoJob(a) {
         created++;
       }
     } else {
-      // Directo: graba una ventana, busca los mejores momentos dentro y los recorta de esa grabación.
+      if (a.platform === "youtube") {
+        // YouTube guarda la última hora del directo: se analiza lo YA emitido, sin esperar a grabar.
+        const aprog = autoProgressFor(autoId);
+        await aprog(2, "Descargando lo último del directo");
+        const audioOnly = a.format === "audio";
+        const got = await grabYoutubePast(info, { back: a.window_s, untilNow: true, audioOnly, maxHeight: a.quality ?? 480,
+          out: join(dir, audioOnly ? "raw.m4a" : "raw.mp4"), onPct: (k) => aprog(2 + 68 * k, "Descargando lo último del directo") });
+        console.log("auto", autoId, "YouTube: analizando los últimos", Math.round(got.len / 60), "min del directo");
+        await aprog(72, "Buscando los mejores momentos");
+      } else {
+      // Directo (TikTok, Twitch, Kick): graba una ventana desde ahora, busca los mejores momentos y los recorta.
       const fmt = a.format === "audio" ? ["-f", "ba/b", "-x", "--audio-format", "mp3"]
         : ["-f", `bv*[height<=${a.quality}]+ba/b[height<=${a.quality}]`, "--merge-output-format", "mp4"];
       // La web usa recording_started_at para mostrar "Grabando · 12 de 30 min".
@@ -276,6 +324,7 @@ async function autoJob(a) {
       await run("yt-dlp", ["--no-warnings", "--no-playlist", "--no-part", "-o", join(dir, "raw.%(ext)s"), ...fmt,
         "--downloader", "ffmpeg", "--downloader-args", `ffmpeg:-t ${a.window_s}`, a.source_url], { timeout: (a.window_s + 300) * 1000, maxBuffer: 200_000_000 });
       await db.from("auto_jobs").update({ recording_started_at: null }).eq("id", autoId);   // fin de la grabación: ahora analiza
+      }
       const raw = (await readdir(dir)).find((f) => f.startsWith("raw."));
       if (!raw) throw new Error("No se pudo grabar el directo");
       const rms = await loudnessPerSecond(join(dir, raw));

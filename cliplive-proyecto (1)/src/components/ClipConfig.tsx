@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { PLANS, QUALITIES, AUTO_WINDOWS, RECORD_WINDOWS, clipCost, isTikTokLive, suggestedClips, type PlanId } from "@/lib/plans";
+import { PLANS, QUALITIES, AUTO_WINDOWS, RECORD_WINDOWS, clipCost, isTikTokLive, isYoutubeLive, suggestedClips, type PlanId } from "@/lib/plans";
 import Trimmer from "@/components/Trimmer";
 import CaptionPicker from "@/components/CaptionPicker";
 import { CAPTION_STYLES, SUB_SIZES, SUB_POSITIONS, SUB_LANGS } from "@/lib/captionStyles";
@@ -32,6 +32,11 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
         const w = RECORD_WINDOWS.filter((x) => x <= P.recordMin * 60).slice(-1)[0] ?? RECORD_WINDOWS[0];
         const first = Math.min(1800, w);   // 30 min por defecto (o lo máximo del plan si es menos)
         setMode("auto"); setWin(first); setCount(suggestedClips(first, P.recordClips));
+      } else if (p && isYoutubeLive(p)) {
+        // YouTube: por defecto se analizan los últimos 30 min ya emitidos (o lo que guarde / permita el plan).
+        const ok = RECORD_WINDOWS.filter((x) => x <= P.recordMin * 60 && x <= (p.dvrSeconds ?? 0) + 120);
+        const first = Math.min(1800, ok.slice(-1)[0] ?? RECORD_WINDOWS[0]);
+        setWin(first); setCount(suggestedClips(first, P.recordClips));
       }
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -45,6 +50,9 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
 
   const isTrial = !isAdmin && plan === "trial", auto = mode === "auto", vod = probe.kind === "vod";
   const ttRec = isTikTokLive(probe);   // directo de TikTok → se graba
+  const ytLive = isYoutubeLive(probe);  // directo de YouTube → se analiza lo ya emitido
+  const longLive = ttRec || ytLive;     // grabaciones/análisis largos (hasta 3 h según el plan)
+  const fmtDvr = (s: number) => (s >= 3600 ? `${(s / 3600).toFixed(s % 3600 < 300 ? 0 : 1)} h` : `${Math.max(1, Math.round(s / 60))} min`);
   const winLabel = (w: number) => (w >= 3600 ? `${w / 3600} h` : `${w / 60} min`);
   const fmt = auto && format === "image" ? "video" : format;
   const video = fmt === "video";
@@ -58,7 +66,7 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
   const maxDur = Math.min(P.maxDuration, room);
   const dur = Math.min(duration, Math.max(auto ? 5 : 1, maxDur));
   const perClip = isAdmin || isTrial ? 0 : clipCost(fmt, quality, dur);
-  const maxCount = ttRec && auto
+  const maxCount = longLive && auto
     ? Math.max(1, Math.min(P.recordClips, isTrial ? trialsLeft : 30))
     : isTrial ? Math.max(1, Math.min(5, trialsLeft)) : 5;
   const n = auto ? Math.min(count, maxCount) : 1;
@@ -84,12 +92,14 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
         <div className="grid grid-cols-2 gap-1 rounded-2xl border border-line bg-card p-1">
           <ModeBtn on={!auto} onClick={() => setMode("manual")} title="Elegir yo el momento" sub="Tú marcas dónde empieza" />
           <ModeBtn on={auto} onClick={() => setMode("auto")}
-            title={ttRec ? <><LiveDot className="h-2 w-2" />Grabar directo</> : <><SparklesIcon className="h-4 w-4" />Momentos destacados</>}
-            sub={ttRec ? "Grabamos y sacamos los mejores clips" : "Buscamos los mejores por ti"} />
+            title={ttRec ? <><LiveDot className="h-2 w-2" />Grabar directo</> : ytLive ? <><SparklesIcon className="h-4 w-4" />Analizar directo</> : <><SparklesIcon className="h-4 w-4" />Momentos destacados</>}
+            sub={ttRec ? "Grabamos y sacamos los mejores clips" : ytLive ? "Lo mejor de lo ya emitido, al momento" : "Buscamos los mejores por ti"} />
         </div>
         {auto && (
           <p className="rounded-2xl border border-accent/30 bg-accent/5 p-4 text-sm text-zinc-300">
             {vod ? "Analizamos el audio del vídeo (y lo más visto en YouTube, si está disponible) para encontrar los momentos con más intensidad, y creamos clips al azar entre los mejores."
+              : ytLive
+                ? `YouTube guarda ${fmtDvr(probe.dvrSeconds)} de este directo. Analizamos los últimos ${winLabel(Math.min(win, probe.dvrSeconds))} (lo que ya se emitió), buscamos los momentos con más intensidad y sacamos ${n} ${n === 1 ? "clip" : "clips"}. No hay que esperar a que pase el tiempo.`
               : ttRec
                 ? `TikTok no guarda los directos, así que lo grabamos desde ahora durante ${winLabel(win)}. Al terminar, buscamos los momentos con más intensidad (gritos, risas, aplausos…) y sacamos ${n} ${n === 1 ? "clip" : "clips"}. Si el directo acaba antes, usamos lo grabado hasta ese momento.`
                 : `Grabamos ${win / 60} min del directo desde ahora, buscamos los momentos con más intensidad (gritos, risas, aplausos…) y creamos clips al azar entre los mejores.`}
@@ -132,14 +142,15 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
 
         <Section title={auto ? "Clips" : "Momento"}>
           {auto ? <>
-            {ttRec ? <>
-              <SubLabel>¿Cuánto tiempo grabamos?</SubLabel>
+            {longLive ? <>
+              <SubLabel>{ytLive ? "¿Cuánto del directo analizamos?" : "¿Cuánto tiempo grabamos?"}</SubLabel>
               <Row>{RECORD_WINDOWS.map((w) => {
-                const locked = w > P.recordMin * 60;
-                return <Chip key={w} on={win === w} disabled={locked} title={locked ? "Disponible en planes superiores" : undefined}
+                const tooLong = ytLive && w > probe.dvrSeconds + 120;   // más de lo que guarda YouTube
+                const locked = w > P.recordMin * 60 || tooLong;
+                return <Chip key={w} on={win === w} disabled={locked} title={tooLong ? "YouTube no guarda tanto de este directo" : locked ? "Disponible en planes superiores" : undefined}
                   onClick={() => { setWin(w); setCount(suggestedClips(w, maxCount)); }}>{winLabel(w)}</Chip>;
               })}</Row>
-              {P.recordMin < 180 && <p className="text-xs text-zinc-500">Tu plan graba hasta {winLabel(P.recordMin * 60)}. <Link href="/planes" className="text-accent hover:underline">Grabar más tiempo</Link></p>}
+              {P.recordMin < 180 && <p className="text-xs text-zinc-500">Tu plan {ytLive ? "analiza" : "graba"} hasta {winLabel(P.recordMin * 60)}. <Link href="/planes" className="text-accent hover:underline">{ytLive ? "Analizar" : "Grabar"} más tiempo</Link></p>}
               <div className="flex items-end justify-between pt-2"><SubLabel>¿Cuántos clips sacamos?</SubLabel><p className="text-2xl font-extrabold tabular-nums">{n}</p></div>
               <input type="range" className="w-full accent-orange-500" min={1} max={maxCount} step={1} value={n} onChange={(e) => setCount(+e.target.value)} aria-label="Número de clips" disabled={maxCount <= 1} />
               <p className="text-xs text-zinc-500">Te sugerimos {suggestedClips(win, maxCount)} (uno cada ~5 min de directo). Máximo {maxCount} con tu plan.</p>
@@ -162,7 +173,7 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
           </> : <>
             <SubLabel>Empezar desde</SubLabel>
             <Row>{STARTS.map((o) => <Chip key={o.s} on={start === o.s} disabled={o.s > maxStart} onClick={() => setStart(o.s)}>{o.l}</Chip>)}</Row>
-            <p className="text-sm text-zinc-400">{probe.dvrSeconds > 0 ? `Puedes retroceder hasta ${Math.round(probe.dvrSeconds / 3600)} h.` : "Este directo no guarda historial: se grabará desde ahora."}</p>
+            <p className="text-sm text-zinc-400">{probe.dvrSeconds > 0 ? `Puedes retroceder hasta ${fmtDvr(probe.dvrSeconds)}${probe.platform === "youtube" ? " (lo que guarda YouTube de este directo)" : ""}.` : "Este directo no guarda historial: se grabará desde ahora."}</p>
           </>}
           {fmt !== "image" && <>
             <div className="flex items-end justify-between pt-2"><SubLabel>{auto ? "Duración de cada clip" : "Duración del clip"}</SubLabel>
@@ -204,7 +215,7 @@ export default function ClipConfig({ plan, credits, trialsLeft, isAdmin = false 
             {err && <p className="rounded-xl border border-red-900/60 bg-red-950/40 p-3 text-sm text-red-300" role="alert">{err}</p>}
             {cantPay && <p className="text-sm text-amber-400">{isTrial ? `Solo te quedan ${trialsLeft} pruebas.` : `Te faltan ${total - credits} créditos.`}</p>}
             <button className="btn-primary w-full text-lg" disabled={busy || badStart || cantPay} onClick={submit}>
-              {busy ? "Creando…" : auto && ttRec ? <><LiveDot className="h-2 w-2" />Grabar {winLabel(win)} y sacar {n} {n === 1 ? "clip" : "clips"}</> : auto ? <><SparklesIcon />Crear {n} {n === 1 ? "clip" : "clips"}</> : "Crear clip"}
+              {busy ? "Creando…" : auto && ttRec ? <><LiveDot className="h-2 w-2" />Grabar {winLabel(win)} y sacar {n} {n === 1 ? "clip" : "clips"}</> : auto && ytLive ? <><SparklesIcon />Analizar {winLabel(Math.min(win, probe.dvrSeconds))} y sacar {n} {n === 1 ? "clip" : "clips"}</> : auto ? <><SparklesIcon />Crear {n} {n === 1 ? "clip" : "clips"}</> : "Crear clip"}
             </button>
             {!isAdmin && <p className="text-center text-xs text-zinc-500">Si algo falla, te devolvemos {isTrial ? "la prueba" : "los créditos"}.</p>}
           </div>

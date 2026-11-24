@@ -13,6 +13,17 @@ if (existsSync(BIN) && !process.env.PATH?.includes(BIN)) process.env.PATH = BIN 
 
 const NAMES: Record<string, string> = { youtube: "YouTube", twitch: "Twitch", kick: "Kick", tiktok: "TikTok" };
 
+// Directos de YouTube: cuánto se puede retroceder de verdad (lo que guarda la lista HLS, normalmente ~1 h).
+async function youtubeDvrSeconds(info: any): Promise<number> {
+  try {
+    const v = (info.formats ?? []).find((f: any) => String(f.protocol).startsWith("m3u8") && f.height);
+    if (!v) return 0;
+    const pl = await (await fetch(v.url, { signal: AbortSignal.timeout(8000) })).text();
+    const total = [...pl.matchAll(/#EXTINF:([\d.]+)/g)].reduce((s, m) => s + Number(m[1]), 0);
+    return Math.max(0, Math.floor(total) - 15);   // margen: el último segmento aún se está emitiendo
+  } catch { return 0; }
+}
+
 // Comprueba el enlace (directo o vídeo) y cuánto historial (DVR) permite. Usa yt-dlp en modo solo metadatos.
 export async function POST(req: Request) {
   if (!(await requireUser())) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -47,7 +58,8 @@ export async function POST(req: Request) {
       videoId: target.platform === "youtube" ? info.id : null,   // para el reproductor de recorte
       maxHeight: Math.max(0, ...heights),
       // DVR real: YouTube permite retroceder hasta ~12 h si el canal lo activa; TikTok no guarda historial.
-      dvrSeconds: !live ? 0 : target.platform === "tiktok" ? 0 : target.platform === "youtube" ? 12 * 3600 : 2 * 3600,
+      // Historial real en YouTube (se mide); TikTok no guarda directos; Twitch/Kick: estimación.
+      dvrSeconds: !live ? 0 : target.platform === "tiktok" ? 0 : target.platform === "youtube" ? await youtubeDvrSeconds(info) : 2 * 3600,
       checkedAt: Date.now(),
     });
   } catch (e: any) {
