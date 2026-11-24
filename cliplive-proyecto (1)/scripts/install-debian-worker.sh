@@ -35,10 +35,12 @@ fi
 export PATH="$NODE_DIR/bin:$PATH"
 # onnxruntime-node intenta bajar los binarios de NVIDIA (CUDA); no hacen falta: la versión de CPU ya viene incluida.
 export ONNXRUNTIME_NODE_INSTALL=skip
+# Esta red no tiene IPv6: usar IPv4 primero para que npm y Node no se queden esperando.
+export NODE_OPTIONS=--dns-result-order=ipv4first
 echo "   node $(node -v) · npm $(npm -v)"
 
 echo "→ 3/5 Dependencias y programas (yt-dlp, Deno, ffmpeg, modelos, fuentes)"
-npm ci --no-audit --no-fund
+npm ci --no-audit --no-fund --loglevel=http --fetch-timeout=60000 --fetch-retries=5
 if [ "$(uname -m)" = "x86_64" ]; then
   bash scripts/render-setup.sh worker
 else

@@ -6,7 +6,7 @@ set -euo pipefail
 ROLE="${1:-worker}"
 cd "$(dirname "$0")/.."
 mkdir -p bin models worker/fonts
-dl() { echo "   ↓ $2"; curl -fsSL --retry 3 --retry-delay 2 -o "$2" "$1"; }
+dl() { echo "   ↓ $2"; curl -fL -4 --progress-bar --connect-timeout 20 --retry 5 --retry-delay 3 -o "$2" "$1"; }
 
 echo "→ yt-dlp (descarga de vídeos)"
 dl "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux" bin/yt-dlp
