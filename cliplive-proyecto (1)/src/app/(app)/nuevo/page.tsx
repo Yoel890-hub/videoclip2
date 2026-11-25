@@ -6,5 +6,5 @@ export default async function Nuevo({ searchParams }: { searchParams: Promise<{ 
   const user = (await requireUser())!;
   const prof = await getProfile(user.id);
   const fromFile = (await searchParams).origen === "archivo";
-  return <ClipConfig key={fromFile ? "file" : "url"} fromFile={fromFile} plan={prof!.plan} credits={prof!.credits} trialsLeft={Math.max(0, TRIALS - prof!.trials_used)} isAdmin={isAdmin(user.email)} />;
+  return <ClipConfig key={fromFile ? "file" : "url"} fromFile={fromFile} plan={prof!.plan} credits={prof!.credits} trialsLeft={Math.max(0, TRIALS - prof!.trials_used)} isAdmin={isAdmin(user)} />;
 }

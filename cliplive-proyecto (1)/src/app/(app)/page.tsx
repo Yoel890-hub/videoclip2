@@ -17,7 +17,7 @@ export default async function Workspace() {
     db.from("clips").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(3),
     db.from("clips").select("id", { count: "exact", head: true }).eq("user_id", user.id),
   ]);
-  const adm = isAdmin(user.email);
+  const adm = isAdmin(user);
   const name = user.user_metadata?.name ?? displayName(user.email).split("@")[0];
   const busy = !!clips?.some((c) => c.status === "queued" || c.status === "processing");
   const trial = !adm && prof?.plan === "trial";

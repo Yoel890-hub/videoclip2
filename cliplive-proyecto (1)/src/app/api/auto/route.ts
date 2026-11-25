@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   const db = admin();
   const prof = await getProfile(user.id);   // lo crea si falta
   if (!prof) return NextResponse.json({ error: "Perfil no encontrado" }, { status: 404 });
-  const adm = isAdmin(user.email);   // admin: límites del plan Premium, sin coste y sin gastar pruebas
+  const adm = isAdmin(user);   // admin: límites del plan Premium, sin coste y sin gastar pruebas
   const plan = effectivePlan(prof.plan as PlanId, adm), isTrial = !adm && prof.plan === "trial";
   // Estilos de subtítulos según el plan (también se comprueba aquí, no solo en la web).
   if (b.subtitles === true && CAPTION_IDS.includes(b.subtitleStyle) && !captionAllowed(adm ? "premium" : prof.plan, b.subtitleStyle))
