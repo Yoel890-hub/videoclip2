@@ -22,7 +22,7 @@ const YOUTUBE_MODE = process.env.YOUTUBE_WORKER_MODE || "direct";
 const PLATFORMS = YOUTUBE_MODE === "external" ? ["twitch", "kick", "tiktok", "file"]
   : YOUTUBE_MODE === "youtube-only" ? ["youtube"] : null;
 const YOUTUBE_ERROR = "YouTube rechazó la descarga desde el servidor. Inténtalo en unos minutos.";
-const CRF = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart"];
+const CRF = ["-c:v", "libx264", "-preset", "superfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart"];
 const CROP = { "9:16": "crop=ih*9/16:ih", "1:1": "crop=min(iw\\,ih):min(iw\\,ih)", "16:9": null };
 const MIME = { mp4: "video/mp4", mp3: "audio/mpeg", jpg: "image/jpeg" };
 
@@ -101,7 +101,7 @@ async function grabYoutubePast(info, { back, len, untilNow = false, audioOnly = 
       ? ["-live_start_index", idx, "-i", h.video.url, "-live_start_index", idx, "-i", h.audio.url, "-map", "0:v", "-map", "1:a"]
       : ["-live_start_index", idx, "-i", h.video.url];
   await ffmpegProgress(["-y", "-hide_banner", "-loglevel", "error", ...inputs, "-t", String(L), "-c", "copy", out],
-    { len: L, onPct, timeout: Math.max(600_000, L * 1000) });
+    { len: L, onPct, timeout: Math.max(600_000, L * 3000) });   // conexiones de casa lentas: hasta 3× lo que dura
   return { back: b, len: L };
 }
 
@@ -151,7 +151,7 @@ async function transcribeWithCli(dir, input, ss, len, lang) {
   await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...(ss ? ["-ss", String(ss)] : []), "-i", input, "-t", String(len), "-vn",
     "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav], { timeout: 600_000 });
   try {
-    await run(process.env.WHISPER_CLI || "whisper-cli", ["-m", WHISPER_MODEL, "-f", wav, "-l", "auto", "-ml", "1", "-sow", "-oj", "-of", base, "-np",
+    await run(process.env.WHISPER_CLI || "whisper-cli", ["-m", WHISPER_MODEL, "-f", wav, "-l", "auto", "-ml", "1", "-sow", "-oj", "-of", base, "-np", "-bs", "1", "-bo", "1",
       "-t", String(Math.min(8, availableParallelism())), ...(lang === "en" ? ["-tr"] : [])],
       { timeout: 1_200_000, maxBuffer: 50_000_000 });
   } catch (e) {
@@ -190,8 +190,23 @@ async function cropFilter(dir, input, { ss, len, aspect, framing, tl }) {
   return { filter: `crop=${cw}:${ch}:${x}:${y}`, outW: cw, outH: ch, faceBoxes: boxes({ cropX: x, cw, ch, cropY: y }) };
 }
 
+// Turnos para el trabajo pesado (caras + Whisper + codificar): con 1-2 núcleos, hacer varios a la vez solo
+// los vuelve todos más lentos. Los clips esperan su turno en orden de llegada (los de cada búsqueda también).
+const HEAVY_SLOTS = Math.max(1, Number(process.env.HEAVY_SLOTS ?? (availableParallelism() >= 4 ? 2 : 1)));
+let heavyActive = 0;
+const heavyQueue = [];
+async function heavy(prog, fn) {
+  if (heavyActive < HEAVY_SLOTS) heavyActive++;
+  else { await prog(50, "Esperando turno"); await new Promise((r) => heavyQueue.push(r)); }   // el hueco pasa directo al siguiente
+  try { return await fn(); }
+  finally { const next = heavyQueue.shift(); if (next) next(); else heavyActive--; }
+}
+
 // Recorta y codifica el vídeo final: proporción + encuadre + (opcional) subtítulos con estilo que no tapan caras.
-async function encodeVideo(dir, input, { ss = 0, len, aspect, framing, subtitles, subtitleStyle, subOpts = {}, out, prog = noop }) {
+function encodeVideo(dir, input, opts) {
+  return heavy(opts.prog ?? noop, () => encodeVideoNow(dir, input, opts));
+}
+async function encodeVideoNow(dir, input, { ss = 0, len, aspect, framing, subtitles, subtitleStyle, subOpts = {}, out, prog = noop }) {
   // Las caras se detectan una vez y sirven para la cámara y para colocar los subtítulos.
   let tl = null;
   if ((framing === "auto" && CROP[aspect ?? "16:9"]) || (subtitles && (subOpts.position ?? "auto") === "auto")) {
@@ -341,7 +356,7 @@ async function chargeClip(a, extra) {
     p_format: a.format, p_aspect: a.aspect, p_quality: a.quality, p_start: 0, p_duration: a.duration_s, p_cost: a.cost,
     p_trial: a.is_trial, p_kind: a.source_kind, p_start_at: extra.startAt ?? null });
   if (error) { console.warn("auto", a.id, "sin créditos/pruebas:", error.message); return null; }
-  await db.from("clips").update({ auto_job_id: a.id, title: extra.title ?? null, subtitles: !!a.subtitles, subtitle_style: a.subtitle_style ?? "clasico", subtitle_size: a.subtitle_size ?? "m", subtitle_position: a.subtitle_position ?? "auto", subtitle_lang: a.subtitle_lang ?? "original", framing: a.framing ?? "auto", ...(extra.status ? { status: extra.status } : {}) }).eq("id", id);
+  await db.from("clips").update({ auto_job_id: a.id, title: extra.title ?? null, subtitles: !!a.subtitles, subtitle_style: a.subtitle_style ?? "clasico", subtitle_size: a.subtitle_size ?? "m", subtitle_position: a.subtitle_position ?? "auto", subtitle_lang: a.subtitle_lang ?? "original", framing: a.framing ?? "auto", ...(extra.status ? { status: extra.status } : {}), ...(extra.stage ? { stage: extra.stage, progress: 0 } : {}) }).eq("id", id);
   return id;
 }
 
@@ -401,16 +416,25 @@ async function autoJob(a) {
       const rms = await loudnessPerSecond(join(dir, raw));
       const starts = pickMoments(rms, a.duration_s, a.count);
       console.log("auto", autoId, "momentos del directo:", starts.join(", "));
+      // Se crean todos los clips desde el principio: el usuario ve cuántos vienen y el avance de cada uno.
+      const pending = [];
       for (const s of starts) {
-        const id = await chargeClip(a, { title: info.title, status: "processing" });
+        const id = await chargeClip(a, { title: info.title, status: "processing", stage: "En espera" });
         if (!id) break;
-        created++;
-        const c = { id, user_id: a.user_id }, prog = progressFor(id);
+        pending.push({ id, s });
+      }
+      created = pending.length;
+      const aprog = autoProgressFor(autoId);
+      for (const [i, { id, s }] of pending.entries()) {
+        await aprog(75 + (24 * i) / pending.length, `Creando los clips · ${i + 1} de ${pending.length}`);
+        const c = { id, user_id: a.user_id }, prog = progressFor(id), t0 = Date.now();
         try {
           const ext = a.format === "audio" ? "mp3" : "mp4", out = join(dir, `final-${s}.${ext}`);
           if (a.format === "audio") await run("ffmpeg", ["-y", "-ss", String(s), "-i", join(dir, raw), "-t", String(a.duration_s), out], { timeout: 600_000 });
           else await encodeVideo(dir, join(dir, raw), { ss: s, len: a.duration_s, aspect: a.aspect, framing: a.framing, subtitles: a.subtitles, subtitleStyle: a.subtitle_style, subOpts: { size: a.subtitle_size, position: a.subtitle_position, lang: a.subtitle_lang }, out, prog });
           await upload(c, out, ext, prog);
+          await rm(out, { force: true });
+          console.log("auto", autoId, `clip ${i + 1}/${pending.length} listo en ${Math.round((Date.now() - t0) / 1000)} s`);
         } catch (e) {
           console.error("auto clip", id, "falló:", e.message);
           await db.rpc("refund_clip", { p_clip: id, p_error: "No se pudo recortar el momento" });
@@ -457,19 +481,27 @@ async function clipJob(c) {
 // ── Cola en la base de datos (sin Redis ni Docker) ──
 // Cada 2 s mira si hay trabajos pendientes y se queda con ellos mientras tenga huecos libres.
 // claim_clip / claim_auto_job reservan el trabajo de forma atómica (dos workers nunca cogen el mismo).
+// Clips y búsquedas tienen huecos separados: una grabación de 1 h (que casi no gasta CPU) ya no deja
+// a todos los demás usuarios esperando. Lo pesado (editar con caras y subtítulos) se reparte por turnos con heavy().
 const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 2));
-let active = 0, polling = false;
+const AUTO_CONCURRENCY = Math.max(1, Number(process.env.AUTO_CONCURRENCY ?? 2));
+const active = { clip: 0, auto: 0 };
+let polling = false;
 
 async function claim() {
   // Primero los clips (son cortos) y después las búsquedas/grabaciones (pueden durar horas).
-  const { data: clips, error: e1 } = PLATFORMS
-    ? await db.rpc("claim_clip_for_platforms", { p_platforms: PLATFORMS }) : await db.rpc("claim_clip");
-  if (e1) throw new Error(e1.message);
-  if (clips?.length) return { kind: "clip", job: clips[0] };
-  const { data: autos, error: e2 } = PLATFORMS
-    ? await db.rpc("claim_auto_job_for_platforms", { p_platforms: PLATFORMS }) : await db.rpc("claim_auto_job");
-  if (e2) throw new Error(e2.message);
-  if (autos?.length) return { kind: "auto", job: autos[0] };
+  if (active.clip < CONCURRENCY) {
+    const { data: clips, error: e1 } = PLATFORMS
+      ? await db.rpc("claim_clip_for_platforms", { p_platforms: PLATFORMS }) : await db.rpc("claim_clip");
+    if (e1) throw new Error(e1.message);
+    if (clips?.length) return { kind: "clip", job: clips[0] };
+  }
+  if (active.auto < AUTO_CONCURRENCY) {
+    const { data: autos, error: e2 } = PLATFORMS
+      ? await db.rpc("claim_auto_job_for_platforms", { p_platforms: PLATFORMS }) : await db.rpc("claim_auto_job");
+    if (e2) throw new Error(e2.message);
+    if (autos?.length) return { kind: "auto", job: autos[0] };
+  }
   return null;
 }
 
@@ -477,14 +509,15 @@ async function poll() {
   if (polling) return;
   polling = true;
   try {
-    while (active < CONCURRENCY) {
+    while (active.clip < CONCURRENCY || active.auto < AUTO_CONCURRENCY) {
       const next = await claim();
       if (!next) break;
-      active++;
-      console.log(next.kind === "clip" ? "clip" : "búsqueda", next.job.id, "empieza", `(${active}/${CONCURRENCY})`);
+      active[next.kind]++;
+      console.log(next.kind === "clip" ? "clip" : "búsqueda", next.job.id, "empieza",
+        `(clips ${active.clip}/${CONCURRENCY} · búsquedas ${active.auto}/${AUTO_CONCURRENCY})`);
       (next.kind === "clip" ? clipJob(next.job) : autoJob(next.job))
         .catch((e) => console.error(next.kind, next.job.id, "error inesperado:", e.message))
-        .finally(() => { active--; poll(); });
+        .finally(() => { active[next.kind]--; poll(); });
     }
   } catch (e) {
     console.error("No se pudo consultar la cola en Supabase:", e.message);

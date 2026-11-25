@@ -76,7 +76,7 @@ export function fixedX(W, cw, framing) {
  * del fotograma en el segundo i / fps. Se usa para mover la cámara y para colocar los subtítulos sin tapar caras.
  */
 export async function faceTimeline(input, { ss = 0, len }) {
-  const fps = len > 120 ? 1 : len > 30 ? 2 : 4, FW = 320, FH = 240, frameBytes = FW * FH * 3;
+  const fps = len > 60 ? 1 : 2, FW = 320, FH = 240, frameBytes = FW * FH * 3;
   const frames = [];
   // Lee los fotogramas en streaming (no carga el vídeo entero en memoria).
   const proc = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", ...(ss ? ["-ss", String(ss)] : []), "-i", input, "-t", String(len), "-an",

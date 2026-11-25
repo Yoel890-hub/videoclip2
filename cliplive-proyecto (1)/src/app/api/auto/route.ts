@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   await db.from("auto_jobs").update({ status: "error", error: "No llegó a empezar (servidor ocupado o apagado). Inténtalo de nuevo." })
     .eq("user_id", user.id).eq("status", "queued").lt("created_at", new Date(now - 15 * 60_000).toISOString());
   await db.from("auto_jobs").update({ status: "error", error: "Se interrumpió. Inténtalo de nuevo." })
-    .eq("user_id", user.id).eq("status", "analyzing").lt("created_at", new Date(now - 4 * 3600_000).toISOString());
+    .eq("user_id", user.id).eq("status", "analyzing").lt("created_at", new Date(now - 12 * 3600_000).toISOString());   // grabar 3 h + crear 30 clips puede pasar de 4 h
   const { count: active } = await db.from("auto_jobs").select("id", { count: "exact", head: true }).eq("user_id", user.id).in("status", ["queued", "analyzing"]);
   if ((active ?? 0) > 0) return NextResponse.json({ error: "Ya hay una búsqueda o grabación en curso. Espera a que termine." }, { status: 429 });
 
