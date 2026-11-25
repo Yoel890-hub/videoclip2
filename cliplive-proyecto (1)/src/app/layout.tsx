@@ -9,9 +9,21 @@ import { isAdmin } from "@/lib/admin";
 import { displayName } from "@/lib/users";
 import { ArrowRightIcon } from "@/components/Icons";
 import Logo from "@/components/Logo";
+import { SITE_URL } from "@/lib/site";
 
 const inter = Inter({ subsets: ["latin"] });
-export const metadata: Metadata = { title: "ClipLive", description: "Saca clips de directos de YouTube, Twitch, Kick y TikTok" };
+const DESCRIPTION = "Saca clips de directos y vídeos de YouTube, Twitch, Kick y TikTok: verticales, con subtítulos y listos para redes en minutos.";
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  title: { default: "ClipLive · Clips de directos y vídeos listos para redes", template: "%s · ClipLive" },
+  description: DESCRIPTION,
+  applicationName: "ClipLive",
+  keywords: ["clips de directos", "clips de Twitch", "clips de Kick", "clips de YouTube", "clips de TikTok", "subtítulos automáticos", "vídeos verticales", "TikTok", "Reels", "Shorts"],
+  openGraph: { type: "website", siteName: "ClipLive", locale: "es_ES", url: "/bienvenida", title: "ClipLive · Clips de directos y vídeos listos para redes", description: DESCRIPTION, images: [{ url: "/logo.png", alt: "ClipLive" }] },
+  twitter: { card: "summary", title: "ClipLive", description: DESCRIPTION, images: ["/logo.png"] },
+  // Search Console → «Etiqueta HTML»: pon el código en GOOGLE_SITE_VERIFICATION (Render → Environment).
+  verification: process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : undefined,
+};
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();

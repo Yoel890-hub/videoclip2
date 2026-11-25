@@ -9,8 +9,9 @@ import StylesShowcase from "@/components/landing/StylesShowcase";
 import { ArrowRightIcon, CaptionsIcon, DownloadIcon, PlayIcon, SparklesIcon, VideoIcon } from "@/components/Icons";
 
 export const metadata: Metadata = {
-  title: "ClipLive · Clips de directos y vídeos listos para redes",
+  title: { absolute: "ClipLive · Clips de directos y vídeos listos para redes" },
   description: "Pega el enlace de un directo o vídeo de YouTube, Twitch, Kick o TikTok y consigue clips verticales con subtítulos en minutos.",
+  alternates: { canonical: "/bienvenida" },
 };
 
 const SIGNUP = "/login?modo=registro";

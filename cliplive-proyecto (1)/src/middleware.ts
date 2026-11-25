@@ -20,7 +20,7 @@ export async function middleware(req: NextRequest) {
   // getClaims(): verifica la sesión aquí mismo (firma ES256) en vez de preguntar a Supabase en cada clic.
   const { data: claims } = await supabase.auth.getClaims();
   const data = { user: claims?.claims?.sub ? { id: claims.claims.sub } : null };
-  const open = p.startsWith("/login") || p.startsWith("/auth") || p.startsWith("/bienvenida");
+  const open = p.startsWith("/login") || p.startsWith("/auth") || p.startsWith("/bienvenida") || p === "/robots.txt" || p === "/sitemap.xml";
   if (!data.user && !open) {
     if (p.startsWith("/api")) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     // La portada pública para quien llega a la raíz; el resto de páginas piden iniciar sesión.
