@@ -90,11 +90,14 @@ async function youtubeHls(info, maxHeight = 1080) {
   return { video, audio, seg: durs[0] || 5, total: durs.reduce((x, y) => x + y, 0) };
 }
 // Descarga desde (ahora - back) durante len segundos. untilNow: solo hasta el momento actual (para analizar).
-async function grabYoutubePast(info, { back, len, untilNow = false, audioOnly = false, maxHeight = 480, out, onPct = () => {} }) {
+// La descarga empieza en el corte de segmento anterior: `lead` = segundos de más al principio (para recortar exacto).
+// exact: baja también esos segundos de más, así [lead, lead + len] es justo el tramo pedido.
+async function grabYoutubePast(info, { back, len, untilNow = false, exact = false, audioOnly = false, maxHeight = 480, out, onPct = () => {} }) {
   const h = await youtubeHls(info, maxHeight);
   const b = Math.max(h.seg, Math.min(back, h.total - h.seg));          // no más atrás de lo que guarda YouTube
-  const L = untilNow ? b : len;
-  const idx = String(-Math.ceil(b / h.seg));
+  const segs = Math.ceil(b / h.seg), lead = segs * h.seg - b;
+  const L = untilNow ? segs * h.seg : exact ? len + lead : len;
+  const idx = String(-segs);
   const inputs = audioOnly
     ? ["-live_start_index", idx, "-i", (h.audio ?? h.video).url, "-vn"]
     : h.audio
@@ -102,7 +105,7 @@ async function grabYoutubePast(info, { back, len, untilNow = false, audioOnly = 
       : ["-live_start_index", idx, "-i", h.video.url];
   await ffmpegProgress(["-y", "-hide_banner", "-loglevel", "error", ...inputs, "-t", String(L), "-c", "copy", out],
     { len: L, onPct, timeout: Math.max(600_000, L * 3000) });   // conexiones de casa lentas: hasta 3× lo que dura
-  return { back: b, len: L };
+  return { back: b, len: L, lead };
 }
 
 // ffmpeg con porcentaje real (lee -progress).
@@ -391,15 +394,20 @@ async function autoJob(a) {
         created++;
       }
     } else {
+      let ytWindow = null;   // YouTube: dónde empieza lo analizado (para bajar luego solo cada momento)
       if (a.platform === "youtube") {
         // YouTube guarda la última hora del directo: se analiza lo YA emitido, sin esperar a grabar.
+        // Para encontrar los momentos basta el SONIDO (unas 20 veces menos que el vídeo): con internet de casa,
+        // 30 min de vídeo en 720p tardaban más de 1 h; el audio, un par de minutos. Luego se baja solo cada clip.
         const aprog = autoProgressFor(autoId);
-        await aprog(2, "Descargando lo último del directo");
-        const audioOnly = a.format === "audio";
-        const got = await grabYoutubePast(info, { back: a.window_s, untilNow: true, audioOnly, maxHeight: a.quality ?? 480,
-          out: join(dir, audioOnly ? "raw.m4a" : "raw.mp4"), onPct: (k) => aprog(2 + 68 * k, "Descargando lo último del directo") });
-        console.log("auto", autoId, "YouTube: analizando los últimos", Math.round(got.len / 60), "min del directo");
-        await aprog(72, "Buscando los mejores momentos");
+        await aprog(2, "Descargando el audio del directo");
+        const t0 = Date.now() / 1000;
+        const got = await grabYoutubePast(info, { back: a.window_s, untilNow: true, audioOnly: true, maxHeight: 144,
+          out: join(dir, "raw.m4a"), onPct: (k) => aprog(2 + 63 * k, "Descargando el audio del directo") });
+        ytWindow = { t0, back: got.back + got.lead };   // el segundo 0 del análisis ocurrió en t0 - back
+        console.log("auto", autoId, "YouTube: analizando los últimos", Math.round(got.len / 60), "min del directo (solo audio)",
+          `en ${Math.round(Date.now() / 1000 - t0)} s`);
+        await aprog(68, "Buscando los mejores momentos");
       } else {
       // Directo (TikTok, Twitch, Kick): graba una ventana desde ahora, busca los mejores momentos y los recorta.
       const fmt = a.format === "audio" ? ["-f", "ba/b", "-x", "--audio-format", "mp3"]
@@ -425,13 +433,39 @@ async function autoJob(a) {
       }
       created = pending.length;
       const aprog = autoProgressFor(autoId);
-      for (const [i, { id, s }] of pending.entries()) {
-        await aprog(75 + (24 * i) / pending.length, `Creando los clips · ${i + 1} de ${pending.length}`);
+      // Origen de cada clip: la grabación entera (Twitch, Kick, TikTok) o, en YouTube, su tramo bajado aparte.
+      const source = new Map(pending.map(({ id, s }) => [id, { file: join(dir, raw), ss: s }]));
+      if (ytWindow) {
+        // Primero se bajan TODOS los tramos (son cortos), antes de editar: así ninguno se sale del historial
+        // que guarda YouTube mientras se editan los demás.
+        const audioOnly = a.format === "audio";
+        for (const [i, { id, s }] of pending.entries()) {
+          await aprog(70 + (10 * i) / pending.length, `Descargando los momentos · ${i + 1} de ${pending.length}`);
+          const prog = progressFor(id);
+          try {
+            await prog(5, "Descargando el momento");
+            const out = join(dir, `tramo-${i}.${audioOnly ? "m4a" : "mp4"}`);
+            const got = await grabYoutubePast(info, { back: Date.now() / 1000 - ytWindow.t0 + ytWindow.back - s, len: a.duration_s, exact: true,
+              audioOnly, maxHeight: a.quality ?? 480, out, onPct: (k) => prog(5 + 40 * k, "Descargando el momento") });
+            source.set(id, { file: out, ss: got.lead });
+            await prog(48, "En espera");
+          } catch (e) {
+            console.error("auto clip", id, "no se pudo bajar el momento:", e.message);
+            source.delete(id);
+            await db.rpc("refund_clip", { p_clip: id, p_error: "No se pudo descargar ese momento del directo" });
+          }
+        }
+      }
+      for (const [i, { id }] of pending.entries()) {
+        const src = source.get(id);
+        if (!src) continue;
+        await aprog(80 + (19 * i) / pending.length, `Creando los clips · ${i + 1} de ${pending.length}`);
         const c = { id, user_id: a.user_id }, prog = progressFor(id), t0 = Date.now();
         try {
-          const ext = a.format === "audio" ? "mp3" : "mp4", out = join(dir, `final-${s}.${ext}`);
-          if (a.format === "audio") await run("ffmpeg", ["-y", "-ss", String(s), "-i", join(dir, raw), "-t", String(a.duration_s), out], { timeout: 600_000 });
-          else await encodeVideo(dir, join(dir, raw), { ss: s, len: a.duration_s, aspect: a.aspect, framing: a.framing, subtitles: a.subtitles, subtitleStyle: a.subtitle_style, subOpts: { size: a.subtitle_size, position: a.subtitle_position, lang: a.subtitle_lang }, out, prog });
+          const ext = a.format === "audio" ? "mp3" : "mp4", out = join(dir, `final-${i}.${ext}`);
+          if (a.format === "audio") await run("ffmpeg", ["-y", "-ss", String(src.ss), "-i", src.file, "-t", String(a.duration_s), out], { timeout: 600_000 });
+          else await encodeVideo(dir, src.file, { ss: src.ss, len: a.duration_s, aspect: a.aspect, framing: a.framing, subtitles: a.subtitles, subtitleStyle: a.subtitle_style, subOpts: { size: a.subtitle_size, position: a.subtitle_position, lang: a.subtitle_lang }, out, prog });
+          if (ytWindow) await rm(src.file, { force: true });
           await upload(c, out, ext, prog);
           await rm(out, { force: true });
           console.log("auto", autoId, `clip ${i + 1}/${pending.length} listo en ${Math.round((Date.now() - t0) / 1000)} s`);
