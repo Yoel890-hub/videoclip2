@@ -22,6 +22,12 @@ export async function POST(req: Request) {
   const db = admin();
 
   const existing = await findUserByEmail(id.email);
+  // Con contraseña siempre se crea una cuenta NUEVA: si el usuario ya está en uso, se avisa y no se toca nada
+  // (así nunca se convierte en administrador por error la cuenta de otra persona).
+  if (existing && password)
+    return NextResponse.json({ error: `«${displayName(existing.email)}» ya está en uso. Elige otro usuario o correo (o déjalo sin contraseña si quieres hacer administrador a esa cuenta).` }, { status: 409 });
+  if (!existing && !password)
+    return NextResponse.json({ error: "Esa cuenta no existe. Para crearla, pon una contraseña de al menos 8 caracteres." }, { status: 400 });
   if (existing) {
     if (isFixedAdmin(existing.email) || existing.app_metadata?.role === ADMIN_ROLE)
       return NextResponse.json({ error: `${displayName(existing.email)} ya es administrador.` }, { status: 409 });

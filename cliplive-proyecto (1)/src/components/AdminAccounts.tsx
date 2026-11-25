@@ -48,8 +48,9 @@ export default function AdminAccounts({ admins, me }: { admins: AdminRow[]; me: 
         <div>
           <h2 className="text-xl font-bold">Crear cuenta de administrador</h2>
           <p className="mt-1 text-sm text-zinc-400">
-            Escribe un <b>usuario</b> nuevo (por ejemplo <i>Maria23</i>) o un <b>correo</b> y una contraseña.
-            Si la cuenta ya existe, solo se le dan los permisos de administrador y no hace falta contraseña.
+            <b>Cuenta nueva:</b> escribe un usuario (por ejemplo <i>Maria23</i>) o un correo <b>y una contraseña</b>.
+            Si el usuario ya está en uso, te avisará para que elijas otro.<br />
+            <b>Cuenta que ya existe:</b> escribe su usuario o correo y deja la contraseña <b>vacía</b>.
           </p>
         </div>
         <form onSubmit={add} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
@@ -58,7 +59,7 @@ export default function AdminAccounts({ admins, me }: { admins: AdminRow[]; me: 
             <input className="input w-full" value={id} onChange={(e) => setId(e.target.value)} placeholder="Maria23" autoComplete="off" required />
           </label>
           <label className="space-y-1 text-sm font-semibold">
-            <span>Contraseña (mín. 8, solo para cuentas nuevas)</span>
+            <span>Contraseña (mín. 8) · vacía si la cuenta ya existe</span>
             <div className="flex gap-2">
               <input className="input w-full" type={show ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password" minLength={8} placeholder="••••••••" />
