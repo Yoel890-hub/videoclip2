@@ -1,6 +1,6 @@
 import { admin, requireUser, getProfile } from "@/lib/supabase";
 import { REFERRAL_BONUS } from "@/lib/plans";
-import { paypalCheckoutOptions } from "@/lib/paypal";
+import { paypalCheckoutOptions, paypalSdkProblem } from "@/lib/paypal";
 import PayPalPlans from "@/components/PayPalPlans";
 
 export default async function Planes() {
@@ -13,6 +13,7 @@ export default async function Planes() {
     checkout.clientId ? admin().from("paypal_checkouts").select("id").eq("user_id", user.id)
       .is("subscription_id", null).is("released_at", null).is("ended_at", null)
       .order("created_at", { ascending: false }).limit(1).maybeSingle() : null,
+    checkout.clientId ? paypalSdkProblem(checkout.clientId) : null,   // deja el motivo en el registro si PayPal lo rechaza
   ]);
   if (result?.error) console.error("Consulta de suscripciones PayPal", result.error);
   const subscriptions = (result?.data ?? []).map(({ id, plan, paid_at }) => ({ id, plan, paid: Boolean(paid_at) }));

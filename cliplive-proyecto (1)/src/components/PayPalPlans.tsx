@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PAID_PLANS, PLANS, type PlanId } from "@/lib/plans";
 import PlanCard from "@/components/PlanCard";
+import { paypalSdkUrl } from "@/lib/paypal-url";
 
 type PayPalButtons = {
   render: (target: HTMLElement) => Promise<void>;
@@ -192,9 +193,7 @@ export default function PayPalPlans({ clientId, plans, current, subscriptions, r
     }
   }
 
-  const sdkUrl = clientId ? `https://www.paypal.com/sdk/js?${new URLSearchParams({
-    "client-id": clientId, currency: "USD", vault: "true", intent: "subscription", "enable-funding": "card",
-  })}` : null;
+  const sdkUrl = clientId ? paypalSdkUrl(clientId) : null;
 
   return (
     <>

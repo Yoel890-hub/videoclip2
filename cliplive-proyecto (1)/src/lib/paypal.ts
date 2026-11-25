@@ -1,4 +1,5 @@
 import { PAID_PLANS, PLANS, type PlanId } from "@/lib/plans";
+import { paypalSdkUrl } from "@/lib/paypal-url";
 
 // Los valores se limpian (espacios, comillas, saltos de línea) porque al pegarlos en Render es fácil colar uno.
 const clean = (v: string | undefined) => v?.trim().replace(/^["']|["']$/g, "").trim() || undefined;
@@ -42,6 +43,25 @@ export function paypalConfig() {
 export function paypalPlanId(plan: PlanId) {
   const id = PLAN_IDS[plan];
   return id && /^P-[A-Z0-9]+$/i.test(id) ? id : undefined;
+}
+
+// Comprueba desde el servidor que PayPal acepta el Client ID (si no, los botones no cargan en ningún navegador)
+// y deja el motivo exacto en el registro de Render. Se guarda 10 min para no preguntar en cada visita.
+let sdkCheck: { at: number; problem: string | null } | undefined;
+export async function paypalSdkProblem(clientId: string) {
+  if (sdkCheck && Date.now() - sdkCheck.at < 600_000) return sdkCheck.problem;
+  let problem: string | null = null;
+  try {
+    const res = await fetch(paypalSdkUrl(clientId), { cache: "no-store", signal: AbortSignal.timeout(8_000) });
+    if (!res.ok) {
+      const text = await res.text();
+      problem = text.match(/SDK Validation error: '([^']+)'/)?.[1] ?? `PayPal respondió ${res.status}`;
+      console.error(`PayPal rechazó cargar los botones: ${problem}. Revisa PAYPAL_CLIENT_ID en Render → Environment ` +
+        `(empieza por ${clientId.slice(0, 6)}…, termina en …${clientId.slice(-4)}, ${clientId.length} caracteres).`);
+    }
+  } catch { /* sin conexión con PayPal: que lo intente el navegador */ }
+  sdkCheck = { at: Date.now(), problem };
+  return problem;
 }
 
 export function paypalCheckoutOptions() {
