@@ -50,20 +50,30 @@ export function pickMoments(rms, dur, count, { heat = null, skipStart = 5, rando
   }
   cands.sort((a, b) => b.score - a.score);
 
-  // Mejores ventanas sin solaparse (dejando hueco de media duración entre ellas).
-  const gap = Math.max(5, Math.floor(dur / 2)), pool = [];
-  for (const c of cands) {
-    if (pool.length >= count * 3) break;
-    if (pool.every((p) => Math.abs(p.i - c.i) >= dur + gap)) pool.push(c);
-  }
-  // Al azar entre los mejores, dando más probabilidad a los de más puntuación.
+  // Nunca dos clips del mismo momento: entre uno y otro, como mínimo su duración + medio clip de hueco.
+  const gap = Math.max(5, Math.floor(dur / 2));
   const chosen = [];
-  const left = [...pool];
-  while (chosen.length < count && left.length) {
-    const w = left.map((c, k) => 1 / (k + 1));
-    let r = random() * w.reduce((a, b) => a + b, 0), k = 0;
-    while (r > w[k] && k < left.length - 1) { r -= w[k]; k++; }
-    chosen.push(left.splice(k, 1)[0].i);
+  const free = (c) => chosen.every((i) => Math.abs(i - c.i) >= dur + gap);
+  // Al azar entre los 3 mejores que quedan, dando más probabilidad al de más puntuación.
+  const pickFrom = (list) => {
+    const top = [];
+    for (const c of list) { if (free(c)) top.push(c); if (top.length === 3) break; }
+    if (!top.length) return false;
+    const w = top.map((_, k) => 1 / (k + 1));
+    let r = random() * w.reduce((x, y) => x + y, 0), k = 0;
+    while (r > w[k] && k < top.length - 1) { r -= w[k]; k++; }
+    chosen.push(top[k].i);
+    return true;
+  };
+
+  // Repartidos por toda la línea de tiempo: el vídeo se divide en tantos tramos como clips y de cada tramo
+  // sale su mejor momento. Así salen cosas distintas en vez de varios clips de la misma parte ruidosa.
+  const first = cands.reduce((m, c) => Math.min(m, c.i), n), span = n - dur - first + 1;
+  for (let k = 0; k < count; k++) {
+    const lo = first + Math.floor((k * span) / count), hi = first + Math.floor(((k + 1) * span) / count);
+    pickFrom(cands.filter((c) => c.i >= lo && c.i < hi));
   }
+  // Si algún tramo era demasiado corto, se completa con los mejores momentos que queden en cualquier parte.
+  while (chosen.length < count && pickFrom(cands)) { /* sigue */ }
   return chosen.sort((a, b) => a - b);
 }
