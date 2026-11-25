@@ -14,6 +14,9 @@ const ADMINS = new Set(
 export const ADMIN_ROLE = "admin";
 export const isFixedAdmin = (email?: string | null) => !!email && ADMINS.has(email.toLowerCase());
 
+// Solo el dueño (los administradores fijos de ADMIN_USERS, p. ej. Dadito23) puede crear o quitar administradores.
+export const isOwner = (user: MaybeUser) => !!user && isFixedAdmin(user.email);
+
 type MaybeUser = { email?: string | null; app_metadata?: Record<string, unknown> | null } | null | undefined;
 export const isAdmin = (user: MaybeUser) => !!user && (isFixedAdmin(user.email) || user.app_metadata?.role === ADMIN_ROLE);
 

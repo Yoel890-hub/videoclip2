@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { admin, requireUser } from "@/lib/supabase";
-import { ADMIN_ROLE, isAdmin, isFixedAdmin } from "@/lib/admin";
+import { ADMIN_ROLE, isFixedAdmin, isOwner } from "@/lib/admin";
 import { findUserByEmail } from "@/lib/admin-users";
 import { displayName, toLoginEmail } from "@/lib/users";
 
 async function guard() {
   const user = await requireUser();
   if (!user) return { error: NextResponse.json({ error: "No autenticado" }, { status: 401 }) };
-  if (!isAdmin(user)) return { error: NextResponse.json({ error: "Solo para administradores" }, { status: 403 }) };
+  if (!isOwner(user)) return { error: NextResponse.json({ error: "Solo el dueño de ClipLive puede gestionar administradores." }, { status: 403 }) };
   return { user };
 }
 

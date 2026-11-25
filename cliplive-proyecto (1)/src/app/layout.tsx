@@ -5,7 +5,7 @@ import Link from "next/link";
 import { requireUser, getProfile } from "@/lib/supabase";
 import { PLANS, TRIALS } from "@/lib/plans";
 import NavLinks from "@/components/NavLinks";
-import { isAdmin } from "@/lib/admin";
+import { isAdmin, isOwner } from "@/lib/admin";
 import { displayName } from "@/lib/users";
 import { ArrowRightIcon } from "@/components/Icons";
 import Logo from "@/components/Logo";
@@ -53,7 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     <div className="absolute right-0 mt-2 w-56 rounded-xl border border-line bg-card p-2 shadow-xl">
                       <p className="truncate px-2 py-1 text-xs text-zinc-400">{email}</p>
                       <p className="px-2 pb-2 text-xs text-zinc-500">{adm ? "Administrador · clips ilimitados" : `Plan ${PLANS[prof.plan as keyof typeof PLANS]?.name ?? prof.plan}`}</p>
-                      {adm && <Link href="/admin" className="block rounded-lg px-2 py-2 text-sm font-semibold hover:bg-card2">Administración</Link>}
+                      {isOwner(user) && <Link href="/admin" className="block rounded-lg px-2 py-2 text-sm font-semibold hover:bg-card2">Administración</Link>}
                       <form action="/auth/signout" method="post">
                         <button className="w-full rounded-lg px-2 py-2 text-left text-sm font-semibold hover:bg-card2">Cerrar sesión</button>
                       </form>
