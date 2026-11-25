@@ -1,19 +1,39 @@
 import { PAID_PLANS, PLANS, type PlanId } from "@/lib/plans";
 
+// Los valores se limpian (espacios, comillas, saltos de línea) porque al pegarlos en Render es fácil colar uno.
+const clean = (v: string | undefined) => v?.trim().replace(/^["']|["']$/g, "").trim() || undefined;
+
 const PLAN_IDS: Partial<Record<PlanId, string>> = {
-  starter: process.env.PAYPAL_PLAN_STARTER,
-  creator: process.env.PAYPAL_PLAN_CREATOR,
-  pro: process.env.PAYPAL_PLAN_PRO,
-  premium: process.env.PAYPAL_PLAN_PREMIUM,
+  starter: clean(process.env.PAYPAL_PLAN_STARTER),
+  creator: clean(process.env.PAYPAL_PLAN_CREATOR),
+  pro: clean(process.env.PAYPAL_PLAN_PRO),
+  premium: clean(process.env.PAYPAL_PLAN_PREMIUM),
 };
+
+// En los registros de Render queda dicho qué variable falta o está mal (una sola vez, sin mostrar valores).
+let reported = false;
+function reportConfig(problems: string[]) {
+  if (reported || !problems.length) return;
+  reported = true;
+  console.error(`PayPal desactivado o incompleto. Revisa en Render → Environment: ${problems.join(" · ")}`);
+}
 
 export const paypalCheckoutId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const paypalSubscriptionId = /^I-[A-Z0-9]{1,48}$/i;
 export const paypalUsdAmount = /^\d{1,10}(\.\d{1,2})?$/;
 
 export function paypalConfig() {
-  const { PAYPAL_CLIENT_ID: clientId, PAYPAL_CLIENT_SECRET: secret, PAYPAL_WEBHOOK_ID: webhookId,
-    PAYPAL_ENV: environment = "sandbox" } = process.env;
+  const clientId = clean(process.env.PAYPAL_CLIENT_ID), secret = clean(process.env.PAYPAL_CLIENT_SECRET);
+  const webhookId = clean(process.env.PAYPAL_WEBHOOK_ID), environment = (clean(process.env.PAYPAL_ENV) ?? "sandbox").toLowerCase();
+  const problems = [
+    !clientId && "falta PAYPAL_CLIENT_ID",
+    !secret && "falta PAYPAL_CLIENT_SECRET",
+    !webhookId && "falta PAYPAL_WEBHOOK_ID",
+    !["sandbox", "live"].includes(environment) && "PAYPAL_ENV debe ser live o sandbox",
+    ...(Object.keys(PLAN_IDS) as PlanId[]).filter((p) => !/^P-[A-Z0-9]+$/i.test(PLAN_IDS[p] ?? ""))
+      .map((p) => `PAYPAL_PLAN_${p.toUpperCase()} vacío o mal copiado (debe empezar por P-)`),
+  ].filter(Boolean) as string[];
+  reportConfig(problems);
   if (!clientId || !secret || !webhookId || !["sandbox", "live"].includes(environment)) return null;
   const base = environment === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
   return { clientId, secret, webhookId, base };
