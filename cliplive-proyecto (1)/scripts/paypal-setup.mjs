@@ -27,8 +27,20 @@ const PLANS = ["starter", "creator", "pro", "premium"].map((key) => {
 });
 
 const rl = createInterface({ input: stdin, output: stdout });
-const clientId = process.env.PAYPAL_CLIENT_ID || (await rl.question(`Client ID de PayPal (${env}): `)).trim();
-const secret = process.env.PAYPAL_CLIENT_SECRET || (await rl.question(`Secret de PayPal (${env}): `)).trim();
+const lines = rl[Symbol.asyncIterator]();
+// El Secret no se muestra en pantalla al pegarlo (para que no quede en capturas ni fotos).
+let hidden = false;
+rl._writeToOutput = (text) => { if (!hidden) stdout.write(text); };
+async function ask(label, secret = false) {
+  stdout.write(label);
+  hidden = secret;
+  const { value = "" } = await lines.next();
+  hidden = false;
+  if (secret) stdout.write("•••••• (oculto)\n");
+  return value.trim();
+}
+const clientId = process.env.PAYPAL_CLIENT_ID || await ask(`Client ID de PayPal (${env}): `);
+const secret = process.env.PAYPAL_CLIENT_SECRET || await ask(`Secret de PayPal (${env}, no se verá al pegarlo): `, true);
 rl.close();
 if (!clientId || !secret) { console.error("Faltan el Client ID o el Secret."); process.exit(1); }
 
