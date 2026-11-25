@@ -34,7 +34,7 @@ Al final tiene que salir `active (running)` y `✓ Listo`.
 ```bash
 journalctl -u cliplive-youtube -f
 ```
-Debe aparecer `Worker de ClipLive listo · youtube`. Deja esa pantalla abierta, ve a **clipvideo.com**,
+Debe aparecer `Worker de ClipLive listo · youtube`. Deja esa pantalla abierta, ve a **clipvidieo.com**,
 pega un enlace de YouTube y crea un clip: verás aquí cómo el portátil lo procesa. Para salir: `Ctrl + C`
 (el worker sigue funcionando).
 
