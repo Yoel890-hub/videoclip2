@@ -13,5 +13,6 @@ export async function GET(req: Request) {
     // Código de invitación: solo cuenta si el usuario es nuevo (apply_referral ignora a quien ya fue referido).
     if (data.user && ref) await admin().rpc("apply_referral", { p_new: data.user.id, p_code: ref.slice(0, 16) });
   }
-  return NextResponse.redirect(new URL(next, url.origin));
+  // Dirección relativa (en Render url.origin sería localhost:10000, no el dominio de la web).
+  return new NextResponse(null, { status: 307, headers: { Location: next } });
 }
