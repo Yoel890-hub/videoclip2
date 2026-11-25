@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // Los proveedores de pago envían notificaciones sin una sesión de ClipLive.
 export async function middleware(req: NextRequest) {
   const p = req.nextUrl.pathname;
-  if (p === "/api/webhook" || p === "/api/webhook/paypal") return NextResponse.next();
+  if (p === "/api/webhook" || p === "/api/webhook/paypal" || p === "/api/paypal-estado") return NextResponse.next();
 
   let res = NextResponse.next({ request: req });
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
