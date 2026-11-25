@@ -12,8 +12,17 @@ export async function sessionClient() {
     },
   });
 }
-export const admin = () =>
-  createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
+function createAdminClient() {
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+}
+
+// Este cliente usa la clave del servidor. Las sesiones de los usuarios viven en sessionClient().
+let adminClient: ReturnType<typeof createAdminClient>;
+export function admin() {
+  return adminClient ??= createAdminClient();
+}
 
 // cache(): dentro de una misma carga de página, la cabecera y la página comparten una sola consulta
 // a Supabase (antes se repetía 2-3 veces y cada cambio de pestaña tardaba más).
