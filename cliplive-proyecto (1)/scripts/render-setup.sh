@@ -43,22 +43,30 @@ if [ "$ROLE" = "worker" ]; then
   dl "$G/ofl/courierprime/CourierPrime-Bold.ttf"    worker/fonts/CourierPrime-Bold.ttf      # ≈ Courier New
   dl "$G/ofl/arimo/Arimo%5Bwght%5D.ttf"             worker/fonts/Arimo.ttf                  # ≈ Arial
 
+  # whisper-cli funciona de verdad: transcribe 1 s de silencio con el modelo (un binario para otro procesador falla aquí).
+  whisper_ok() {
+    [ -x bin/whisper-cli ] || return 1
+    ./bin/ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=16000:cl=mono -t 1 -c:a pcm_s16le /tmp/whisper-test.wav &&
+      ./bin/whisper-cli -m models/ggml-base.bin -f /tmp/whisper-test.wav -np -t 1 >/dev/null 2>&1
+  }
+
   echo "→ Comprobaciones"
   ./bin/ffmpeg -hide_banner -version | head -1
   if ./bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -q " whisper "; then
     echo "   ✓ ffmpeg incluye Whisper: los subtítulos funcionarán"
-  elif [ -x bin/whisper-cli ] && ./bin/whisper-cli --help >/dev/null 2>&1; then
+  elif whisper_ok; then
     echo "   ✓ ffmpeg sin Whisper, pero whisper-cli ya está instalado: los subtítulos funcionarán"
   elif command -v cmake >/dev/null && command -v c++ >/dev/null; then
     echo "→ ffmpeg sin Whisper: compilando whisper-cli (whisper.cpp), tarda unos minutos"
     rm -rf /tmp/whisper.cpp
     git clone -q --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
     cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-      -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_SDL2=OFF -DGGML_NATIVE=OFF >/dev/null
+      -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_SDL2=OFF -DGGML_NATIVE=ON >/dev/null   # para el procesador de este equipo (si no: «Instrucción ilegal»)
     cmake --build /tmp/whisper.cpp/build -j"$(nproc)" --target whisper-cli >/dev/null
     cp /tmp/whisper.cpp/build/bin/whisper-cli bin/ && chmod +x bin/whisper-cli
     rm -rf /tmp/whisper.cpp
-    echo "   ✓ whisper-cli listo: los subtítulos funcionarán"
+    if whisper_ok; then echo "   ✓ whisper-cli listo: los subtítulos funcionarán"
+    else echo "   ⚠ whisper-cli no funciona en este equipo → clips SIN subtítulos"; fi
   else
     echo "   ⚠ AVISO: este ffmpeg NO incluye Whisper y no hay cmake para compilar whisper-cli → clips SIN subtítulos"
   fi

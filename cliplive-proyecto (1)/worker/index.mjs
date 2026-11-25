@@ -155,7 +155,7 @@ async function transcribeWithCli(dir, input, ss, len, lang) {
       "-t", String(Math.min(8, availableParallelism())), ...(lang === "en" ? ["-tr"] : [])],
       { timeout: 1_200_000, maxBuffer: 50_000_000 });
   } catch (e) {
-    console.warn(e.code === "ENOENT" ? "Ni ffmpeg con Whisper ni whisper-cli → clip sin subtítulos" : `whisper-cli falló: ${e.message}`);
+    console.warn(e.code === "ENOENT" ? "Ni ffmpeg con Whisper ni whisper-cli → clip sin subtítulos" : `whisper-cli falló (código ${e.code}): ${String(e.stderr || e.message).trim().split("\n").slice(-4).join(" | ")}`);
     return [];
   }
   const out = JSON.parse(await readFile(`${base}.json`, "utf8"));
