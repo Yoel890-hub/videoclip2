@@ -12,6 +12,8 @@ import Logo from "@/components/Logo";
 import { SITE_URL } from "@/lib/site";
 
 const inter = Inter({ subsets: ["latin"] });
+const GOOGLE_RAW = (process.env.GOOGLE_SITE_VERIFICATION ?? "").trim();
+const GOOGLE_CODE = GOOGLE_RAW.match(/content=["']([^"']+)/)?.[1] ?? GOOGLE_RAW.replace(/["'<>]/g, "");
 const DESCRIPTION = "Saca clips de directos y vídeos de YouTube, Twitch, Kick y TikTok: verticales, con subtítulos y listos para redes en minutos.";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -21,8 +23,8 @@ export const metadata: Metadata = {
   keywords: ["clips de directos", "clips de Twitch", "clips de Kick", "clips de YouTube", "clips de TikTok", "subtítulos automáticos", "vídeos verticales", "TikTok", "Reels", "Shorts"],
   openGraph: { type: "website", siteName: "ClipLive", locale: "es_ES", url: "/bienvenida", title: "ClipLive · Clips de directos y vídeos listos para redes", description: DESCRIPTION, images: [{ url: "/logo.png", alt: "ClipLive" }] },
   twitter: { card: "summary", title: "ClipLive", description: DESCRIPTION, images: ["/logo.png"] },
-  // Search Console → «Etiqueta HTML»: pon el código en GOOGLE_SITE_VERIFICATION (Render → Environment).
-  verification: process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : undefined,
+  // Search Console → «Etiqueta HTML»: en GOOGLE_SITE_VERIFICATION (Render → Environment) vale el código o la etiqueta <meta …> entera.
+  verification: GOOGLE_CODE ? { google: GOOGLE_CODE } : undefined,
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
