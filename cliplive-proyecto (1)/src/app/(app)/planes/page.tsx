@@ -1,5 +1,5 @@
 import { admin, requireUser, getProfile } from "@/lib/supabase";
-import { REFERRAL_BONUS } from "@/lib/plans";
+import { PLANS, REFERRAL_BONUS } from "@/lib/plans";
 import { paypalCheckoutOptions, paypalSdkProblem } from "@/lib/paypal";
 import PayPalPlans from "@/components/PayPalPlans";
 
@@ -23,6 +23,12 @@ export default async function Planes() {
         <h1 className="text-3xl font-extrabold sm:text-4xl">Mejora tu plan</h1>
         <p className="mt-1 text-zinc-400">Precios en dólares con renovación automática. Paga con PayPal o con tarjeta si PayPal la ofrece para tu compra.</p>
       </div>
+      {prof?.manual_plan && prof.plan_expires_at && (
+        <p role="status" className="card border-accent/40 text-sm text-zinc-200">
+          Tu plan <b>{PLANS[prof.plan as keyof typeof PLANS]?.name ?? prof.plan}</b> está pagado hasta el{" "}
+          <b>{new Date(prof.plan_expires_at).toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" })}</b>. Para renovarlo, habla con nosotros.
+        </p>
+      )}
       <PayPalPlans clientId={checkout.clientId} plans={result?.error ? [] : checkout.plans}
         current={prof?.plan} subscriptions={subscriptions} recentCheckoutId={recent?.data?.id} />
       <section className="card border-dashed border-accent/50">

@@ -43,6 +43,12 @@ export const requireUser = cache(async (): Promise<SessionUser | null> => {
 export const getProfile = cache(async (userId: string) => {
   const db = admin();
   const { data } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
+  // Plan pagado en efectivo y vencido: vuelve a Prueba en el momento (Administración → Clientes en efectivo).
+  if (data?.manual_plan && data.plan_expires_at && new Date(data.plan_expires_at) <= new Date()) {
+    await db.rpc("expire_manual_plans", { p_user: userId });
+    const { data: fresh } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
+    return fresh ?? data;
+  }
   if (data) return data;
   const { data: u } = await db.auth.admin.getUserById(userId);
   await db.from("profiles").upsert({ id: userId, email: u?.user?.email ?? null }, { onConflict: "id", ignoreDuplicates: true });
