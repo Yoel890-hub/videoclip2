@@ -50,25 +50,38 @@ if [ "$ROLE" = "worker" ]; then
       ./bin/whisper-cli -m models/ggml-base.bin -f /tmp/whisper-test.wav -np -t 1 >/dev/null 2>&1
   }
 
+  # Compila whisper-cli. En Render no hay cmake: se instala con pip (Python sí está).
+  # En casa se compila para ese procesador; en Render, para cualquier servidor moderno (AVX2), porque
+  # el equipo que compila puede no ser el mismo que ejecuta y si no saldría «Instrucción ilegal».
+  build_whisper() {
+    command -v c++ >/dev/null || { echo "   (no hay compilador de C++)"; return 1; }
+    local CMAKE=cmake native=ON
+    [ -n "${RENDER:-}" ] && native=OFF
+    if ! command -v cmake >/dev/null; then
+      echo "   instalando cmake con pip"
+      { python3 -m pip install -q --user cmake 2>/dev/null || python3 -m pip install -q --user --break-system-packages cmake; } || return 1
+      CMAKE="$(python3 -m site --user-base)/bin/cmake"
+    fi
+    rm -rf /tmp/whisper.cpp &&
+    git clone -q --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp &&
+    "$CMAKE" -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF       -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_SDL2=OFF -DGGML_NATIVE=$native -DGGML_AVX512=OFF       -Wno-deprecated >/dev/null &&
+    "$CMAKE" --build /tmp/whisper.cpp/build -j"$(nproc)" --target whisper-cli >/dev/null &&
+    cp /tmp/whisper.cpp/build/bin/whisper-cli bin/ && chmod +x bin/whisper-cli || return 1
+    rm -rf /tmp/whisper.cpp
+  }
+
   echo "→ Comprobaciones"
   ./bin/ffmpeg -hide_banner -version | head -1
   if ./bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -q " whisper "; then
     echo "   ✓ ffmpeg incluye Whisper: los subtítulos funcionarán"
   elif whisper_ok; then
     echo "   ✓ ffmpeg sin Whisper, pero whisper-cli ya está instalado: los subtítulos funcionarán"
-  elif command -v cmake >/dev/null && command -v c++ >/dev/null; then
-    echo "→ ffmpeg sin Whisper: compilando whisper-cli (whisper.cpp), tarda unos minutos"
-    rm -rf /tmp/whisper.cpp
-    git clone -q --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
-    cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-      -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_SDL2=OFF -DGGML_NATIVE=ON >/dev/null   # para el procesador de este equipo (si no: «Instrucción ilegal»)
-    cmake --build /tmp/whisper.cpp/build -j"$(nproc)" --target whisper-cli >/dev/null
-    cp /tmp/whisper.cpp/build/bin/whisper-cli bin/ && chmod +x bin/whisper-cli
-    rm -rf /tmp/whisper.cpp
-    if whisper_ok; then echo "   ✓ whisper-cli listo: los subtítulos funcionarán"
-    else echo "   ⚠ whisper-cli no funciona en este equipo → clips SIN subtítulos"; fi
   else
-    echo "   ⚠ AVISO: este ffmpeg NO incluye Whisper y no hay cmake para compilar whisper-cli → clips SIN subtítulos"
+    echo "→ ffmpeg sin Whisper: compilando whisper-cli (whisper.cpp), tarda unos minutos"
+    # Si falla, la instalación sigue (los clips se harán sin subtítulos) en vez de romper la publicación.
+    build_whisper || echo "   ⚠ No se pudo compilar whisper-cli"
+    if whisper_ok; then echo "   ✓ whisper-cli listo: los subtítulos funcionarán"
+    else echo "   ⚠ AVISO: whisper-cli no funciona en este equipo → clips SIN subtítulos"; fi
   fi
   ./bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -q " subtitles " && echo "   ✓ ffmpeg puede dibujar subtítulos (libass)"
 fi
