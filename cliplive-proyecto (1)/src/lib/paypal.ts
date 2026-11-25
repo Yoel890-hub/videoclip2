@@ -2,7 +2,8 @@ import { PAID_PLANS, PLANS, type PlanId } from "@/lib/plans";
 import { paypalSdkUrl } from "@/lib/paypal-url";
 
 // Los valores se limpian (espacios, comillas, saltos de línea) porque al pegarlos en Render es fácil colar uno.
-const clean = (v: string | undefined) => v?.trim().replace(/^["']|["']$/g, "").trim() || undefined;
+// Ninguna clave de PayPal lleva espacios: se quitan todos (también los de en medio, que cuelan al copiar y pegar).
+const clean = (v: string | undefined) => v?.replace(/["'s]+/g, "") || undefined;
 
 const PLAN_IDS: Partial<Record<PlanId, string>> = {
   starter: clean(process.env.PAYPAL_PLAN_STARTER),
