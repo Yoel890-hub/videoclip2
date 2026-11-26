@@ -169,6 +169,10 @@ export default function Bienvenida() {
 
       <footer className="border-t border-line/60 py-8 text-center text-sm text-zinc-500">
         <p>© {new Date().getFullYear()} ClipLive · Respeta los derechos de autor del contenido que recortes.</p>
+        <p className="mt-2">
+          <Link href="/terminos" className="hover:text-zinc-300">Términos y condiciones</Link>{" · "}
+          <Link href="/privacidad" className="hover:text-zinc-300">Política de privacidad</Link>
+        </p>
       </footer>
     </div>
   );

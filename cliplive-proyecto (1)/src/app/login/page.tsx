@@ -133,6 +133,12 @@ export default function Login() {
         {info && <p className="rounded-xl border border-emerald-900/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-300" role="status">{info}</p>}
 
         <button className="btn-primary w-full" disabled={busy}>{busy ? "Un momento…" : boton}</button>
+        {mode === "signup" && (
+          <p className="text-center text-xs text-zinc-500">
+            Al crear tu cuenta aceptas los <a href="/terminos" target="_blank" className="font-semibold text-zinc-300 underline">Términos y condiciones</a> y
+            la <a href="/privacidad" target="_blank" className="font-semibold text-zinc-300 underline">Política de privacidad</a>.
+          </p>
+        )}
       </form>
 
       {mode === "reset" ? (

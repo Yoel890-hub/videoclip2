@@ -343,6 +343,24 @@ async function capture(c, dir, prog = noop) {
   return "mp4";
 }
 
+// Portada del clip (un fotograma en JPG junto al vídeo): la web la muestra en vez de un recuadro negro,
+// porque los móviles (sobre todo iPhone) no cargan la imagen del vídeo hasta darle a reproducir.
+const thumbKey = (key) => key.replace(/\.mp4$/, ".thumb.jpg");
+async function uploadThumb(file, key) {
+  try {
+    const out = file.replace(/\.mp4$/, ".thumb.jpg");
+    const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]);
+    const at = Math.min(1.5, Math.max(0, Number(stdout) / 3 || 0));
+    await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-ss", String(at), "-i", file, "-frames:v", "1",
+      "-vf", "scale='min(720,iw)':-2", "-q:v", "4", out], { timeout: 60_000 });
+    const { error } = await db.storage.from(BUCKET).upload(thumbKey(key), await readFile(out), { contentType: "image/jpeg", upsert: true });
+    if (error) throw error;
+    await rm(out, { force: true });
+  } catch (e) {
+    console.warn("No se pudo crear la portada del clip:", e.message);   // el clip sigue bien, solo sin portada
+  }
+}
+
 async function upload(c, file, ext, prog = noop) {
   const size = (await stat(file)).size;
   if (!size) throw new Error("Archivo vacío");
@@ -350,6 +368,7 @@ async function upload(c, file, ext, prog = noop) {
   const key = `clips/${c.user_id}/${c.id}.${ext}`;
   const { error } = await db.storage.from(BUCKET).upload(key, await readFile(file), { contentType: MIME[ext], upsert: true });
   if (error) throw new Error(`Subida a Supabase Storage: ${error.message}`);
+  if (ext === "mp4") await uploadThumb(file, key);
   await db.from("clips").update({ status: "ready", storage_key: key, size_bytes: size, expires_at: new Date(Date.now() + 30 * 864e5).toISOString(), progress: 100, stage: null }).eq("id", c.id);
 }
 
@@ -609,6 +628,30 @@ if (YOUTUBE_MODE === "youtube-only") {
   setInterval(pollYoutubeProbes, 1_500);
   pollYoutubeProbes();
 }
+// Borra de verdad los archivos de los clips caducados (pasados los 30 días ya no se pueden descargar).
+// Lo hace solo el worker de Render (no el de YouTube de casa), una vez por hora y de 100 en 100.
+async function purgeExpiredClips() {
+  try {
+    for (let round = 0; round < 20; round++) {
+      const { data, error } = await db.from("clips").select("id,storage_key").lt("expires_at", new Date().toISOString())
+        .not("storage_key", "is", null).limit(100);
+      if (error) throw error;
+      if (!data?.length) break;
+      const { error: rmError } = await db.storage.from(BUCKET).remove(data.flatMap((c) => [c.storage_key, thumbKey(c.storage_key)]));
+      if (rmError) throw rmError;
+      await db.from("clips").update({ storage_key: null, size_bytes: null }).in("id", data.map((c) => c.id));
+      console.log("Clips caducados borrados:", data.length);
+      if (data.length < 100) break;
+    }
+  } catch (e) {
+    console.error("Limpieza de clips caducados:", e.message);
+  }
+}
+if (YOUTUBE_MODE !== "youtube-only") {
+  setInterval(purgeExpiredClips, 3_600_000);
+  setTimeout(purgeExpiredClips, 60_000);
+}
+
 await recoverInterrupted();
 setInterval(poll, 2000);
 poll();

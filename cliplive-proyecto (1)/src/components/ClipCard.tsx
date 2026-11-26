@@ -19,7 +19,7 @@ export default function ClipCard({ c }: { c: any }) {
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-card transition hover:border-zinc-600">
       {/* Vista previa */}
       <div className="bg-black">
-        {ready && c.format === "video" && <ClipMedia kind="video" src={view} frame={frame} />}
+        {ready && c.format === "video" && <ClipMedia kind="video" src={view} poster={`/api/clips/${c.id}/thumb`} frame={frame} />}
         {ready && c.format === "image" && <ClipMedia kind="image" src={view} frame="aspect-video" />}
         {ready && c.format === "audio" && (
           <div className="flex aspect-video flex-col items-center justify-center gap-4 bg-gradient-to-br from-accent/20 to-transparent p-4">

@@ -21,7 +21,7 @@ export default async function Planes() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-extrabold sm:text-4xl">Mejora tu plan</h1>
-        <p className="mt-1 text-zinc-400">Precios en dólares con renovación automática. Paga con PayPal o con tarjeta si PayPal la ofrece para tu compra.</p>
+        <p className="mt-1 text-zinc-400">Precios en dólares con renovación automática. Paga con PayPal o con tarjeta si PayPal la ofrece para tu compra. Al comprar aceptas los <a href="/terminos" className="text-zinc-300 underline">Términos</a> y la <a href="/privacidad" className="text-zinc-300 underline">Política de privacidad</a>.</p>
       </div>
       {prof?.manual_plan && prof.plan_expires_at && (
         <p role="status" className="card border-accent/40 text-sm text-zinc-200">

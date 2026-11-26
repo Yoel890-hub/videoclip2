@@ -27,7 +27,7 @@ export async function DELETE(_: Request, { params }: Ctx) {
   if (!c) return NextResponse.json({ error: "Clip no encontrado" }, { status: 404 });
   if (c.status === "queued" || c.status === "processing")
     return NextResponse.json({ error: "Espera a que termine de crearse para borrarlo." }, { status: 409 });
-  if (c.storage_key) await db.storage.from(BUCKET).remove([c.storage_key]);
+  if (c.storage_key) await db.storage.from(BUCKET).remove([c.storage_key, c.storage_key.replace(/\.mp4$/, ".thumb.jpg")]);
   const { error } = await db.from("clips").delete().eq("id", id).eq("user_id", user.id);
   if (error) return NextResponse.json({ error: "No se pudo borrar." }, { status: 500 });
   return NextResponse.json({ ok: true });
