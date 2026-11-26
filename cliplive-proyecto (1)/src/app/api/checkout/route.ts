@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     const profile = await getProfile(user.id);
     if (!profile) throw new Error("No se pudo cargar el perfil para iniciar el pago");
     const { data: checkoutId, error } = await admin().rpc("start_paypal_checkout", {
-      p_user: user.id, p_plan: plan, p_paypal_plan: planId, p_price: PLANS[plan].price, p_credits: PLANS[plan].credits,
+      p_user: user.id, p_plan: plan, p_paypal_plan: planId, p_price: PLANS[plan].price, p_credits: PLANS[plan].weekly,   // al pagar: el saldo semanal; luego se recarga cada semana
     });
     if (error) throw error;
     if (!checkoutId) {

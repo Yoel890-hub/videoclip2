@@ -19,7 +19,7 @@ const Check = () => (
 export function planFeatures(id: PlanId) {
   const p = PLANS[id], n = captionsForPlan(id);
   return [
-    `${p.credits.toLocaleString("es-ES")} créditos ${p.months === 1 ? "al mes" : p.months === 12 ? "al año" : `cada ${p.months} meses`}`,
+    `${p.weekly.toLocaleString("es-ES")} créditos cada semana (se recargan solos)`,
     n >= CAPTION_STYLES.length ? `Los ${n} estilos de subtítulos` : `${n} estilos de subtítulos`,
     `Hasta ${p.maxQuality}p`,
     `Clips de hasta ${Math.round(p.maxDuration / 60)} min`,

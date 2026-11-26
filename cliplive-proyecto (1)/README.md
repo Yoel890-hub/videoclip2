@@ -24,12 +24,12 @@ Node 20+ (la cola de trabajos está en Supabase), `ffmpeg`, `yt-dlp`, `yt-dlp-ej
 2. Abre **Apps & Credentials** en el panel de PayPal Developer con la cuenta Business que recibirá los cobros. Crea una aplicación en Sandbox, selecciona la cuenta Business de pruebas y copia su Client ID y su Secret en `PAYPAL_CLIENT_ID` y `PAYPAL_CLIENT_SECRET`. [Panel de PayPal Developer](https://developer.paypal.com/dashboard/applications/)
 3. Crea un producto de servicio digital para ClipLive y cuatro planes activos de precio fijo en USD. Usa ciclos regulares sin límite, sin período de prueba y sin cuota inicial. Copia los IDs `P-…` a las variables de la tabla. [Guía de suscripciones de PayPal](https://developer.paypal.com/platforms/subscriptions/integrate/)
 
-   | Variable | Plan | Cobro | Créditos por ciclo |
+   | Variable | Plan | Cobro | Créditos cada semana (se recargan hasta) |
    |---|---|---|---:|
-   | `PAYPAL_PLAN_STARTER` | Starter | $9 cada mes | 300 |
-   | `PAYPAL_PLAN_CREATOR` | Creator | $24 cada 2 meses | 2 000 |
-   | `PAYPAL_PLAN_PRO` | Pro | $59 cada 5 meses | 15 000 |
-   | `PAYPAL_PLAN_PREMIUM` | Premium | $99 cada año | 36 000 |
+   | `PAYPAL_PLAN_STARTER` | Starter | $9 cada mes | 600 |
+   | `PAYPAL_PLAN_CREATOR` | Creator | $24 cada 2 meses | 1 000 |
+   | `PAYPAL_PLAN_PRO` | Pro | $59 cada 5 meses | 3 000 |
+   | `PAYPAL_PLAN_PREMIUM` | Premium | $99 cada año | 3 000 |
 
 4. En la misma aplicación de PayPal, agrega la URL pública `https://tu-dominio.com/api/webhook/paypal` y copia el identificador del webhook en `PAYPAL_WEBHOOK_ID`. Si ejecutas la web en tu PC, usa una URL HTTPS accesible desde PayPal para recibir esas notificaciones. Selecciona estos eventos. [Guía de webhooks de PayPal](https://developer.paypal.com/api/rest/webhooks/rest/)
 

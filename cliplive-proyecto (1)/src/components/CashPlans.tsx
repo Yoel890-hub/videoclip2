@@ -27,7 +27,7 @@ export default function CashPlans({ rows, setupError }: { rows: CashRow[]; setup
       const r = await fetch("/api/admin/cash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, password, plan, periods }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error ?? "No se pudo asignar el plan.");
-      setMsg({ ok: true, text: `${j.created ? `Cuenta «${j.name}» creada. ` : ""}Plan ${j.plan} activado para «${j.name}» con ${j.credits} créditos. Vence el ${fmt(j.endsAt)}.` });
+      setMsg({ ok: true, text: `${j.created ? `Cuenta «${j.name}» creada. ` : ""}Plan ${j.plan} activado para «${j.name}» con ${j.credits} créditos (se recargan cada semana). Vence el ${fmt(j.endsAt)}.` });
       setId(""); setPassword(""); setPeriods(1);
       router.refresh();
     } catch (err) {
@@ -84,7 +84,7 @@ export default function CashPlans({ rows, setupError }: { rows: CashRow[]; setup
             </select>
           </label>
           <div className="flex flex-wrap items-center justify-between gap-3 sm:col-span-2">
-            <p className="text-sm text-zinc-300">Recibe <b>{p.credits * periods}</b> créditos · dura <b>{periodName(p.months, periods)}</b> · cobra <b>${p.price * periods}</b></p>
+            <p className="text-sm text-zinc-300">Recibe <b>{p.weekly}</b> créditos cada semana · dura <b>{periodName(p.months, periods)}</b> · cobra <b>${p.price * periods}</b></p>
             <button className="btn-primary" disabled={busy || !id.trim()}>{busy ? "Guardando…" : "Dar plan"}</button>
           </div>
         </form>

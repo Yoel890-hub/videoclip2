@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 
   const p = PLANS[plan];
   const { data: endsAt, error } = await db.rpc("grant_manual_plan", {
-    p_user: account.id, p_plan: plan, p_periods: periods, p_months: p.months, p_credits: p.credits,
+    p_user: account.id, p_plan: plan, p_periods: periods, p_months: p.months, p_credits: p.weekly,
     p_note: `${periods}x por ${displayName(g.user.email)}`,
   });
   if (error) {
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     console.error("Plan en efectivo", error.message);
     return NextResponse.json({ error: "No se pudo asignar el plan." }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, created, name: displayName(account.email), plan: p.name, credits: p.credits * periods, endsAt });
+  return NextResponse.json({ ok: true, created, name: displayName(account.email), plan: p.name, credits: p.weekly, endsAt });
 }
 
 // Quitar el plan en efectivo ahora (la cuenta vuelve a Prueba).

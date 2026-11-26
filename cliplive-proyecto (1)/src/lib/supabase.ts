@@ -1,4 +1,5 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { PLANS, type PlanId } from "@/lib/plans";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { cache } from "react";
@@ -48,6 +49,15 @@ export const getProfile = cache(async (userId: string) => {
     await db.rpc("expire_manual_plans", { p_user: userId });
     const { data: fresh } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
     return fresh ?? data;
+  }
+  // Recarga semanal de créditos (el mismo día de la semana en que pagó): el saldo vuelve al tope de su plan.
+  const weekly = data ? PLANS[data.plan as PlanId]?.weekly ?? 0 : 0;
+  if (weekly > 0 && "credits_refill_at" in data && (!data.credits_refill_at || new Date(data.credits_refill_at) <= new Date())) {
+    const { error } = await db.rpc("refill_weekly_credits", { p_user: userId, p_cap: weekly });
+    if (!error) {
+      const { data: fresh } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
+      return fresh ?? data;
+    }
   }
   if (data) return data;
   const { data: u } = await db.auth.admin.getUserById(userId);
